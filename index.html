@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="命运硬币——浏览器交互原型"
+    />
+    <title>命运硬币 · 概率审查中</title>
+    <link rel="stylesheet" href="./src/ui/styles.css" />
+  </head>
+  <body>
+    <div id="entry-overlay" class="entry-overlay">
+      <div class="entry-card">
+        <span class="entry-coin">◉</span>
+        <span class="eyebrow">PROBABILITY WORLD</span>
+        <h1>命运赌场正在营业</h1>
+        <p>点击入场。赌场需要这次确认来播放音乐，并拒绝承认这是技术限制。</p>
+        <button type="button" data-action="enter-demo">进入命运赌场</button>
+      </div>
+    </div>
+    <div id="app" aria-live="polite"></div>
+    <div id="tutorial-root" aria-live="polite"></div>
+    <script type="module" src="./src/ui/app.js"></script>
+  </body>
+</html>
