@@ -251,6 +251,16 @@ function mapScreen(snapshot) {
               ].label}
               <span>→</span>
             </button>
+            ${
+              snapshot.canReturnToShop
+                ? `
+                  <button class="secondary-button return-shop-button"
+                    data-action="return-shop">
+                    返回概率结算处
+                  </button>
+                `
+                : ""
+            }
           </div>
           ${
             snapshot.chapterState.completedNodeIds.length === 0

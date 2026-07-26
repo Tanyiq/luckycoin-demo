@@ -62,6 +62,7 @@ const actions = {
   "shop-target": (value) => session.selectShopTarget(value),
   "cancel-shop-selection": () => session.cancelShopSelection(),
   "leave-shop": () => session.leaveShop(),
+  "return-shop": () => session.returnToShop(),
   "boss-relic": (value) => session.selectBossRelic(value),
   "restart-run": () => session.startRun(),
   "open-build": () => session.openBuild(),

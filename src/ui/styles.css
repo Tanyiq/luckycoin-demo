@@ -3314,6 +3314,37 @@ h2 {
     min-width: 0;
   }
 
+  .coin-tray .coin-card.type-counter {
+    grid-template-rows:
+      minmax(22px, auto)
+      minmax(16px, auto)
+      minmax(16px, auto);
+  }
+
+  .coin-tray .coin-card.type-counter .coin-title {
+    position: relative;
+    z-index: 1;
+  }
+
+  .coin-tray .coin-card.type-counter .face-effect {
+    grid-column: 1 / -1;
+    padding-top: 1px;
+    white-space: nowrap;
+  }
+
+  .coin-tray .coin-card.type-counter .face-effect.front {
+    grid-row: 2;
+  }
+
+  .coin-tray .coin-card.type-counter .face-effect.back {
+    grid-row: 3;
+  }
+
+  .coin-tray .coin-card.type-counter .face-effect span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .coin-tray .inline-result {
     top: 4px;
     right: 5px;

@@ -98,6 +98,8 @@ export class GameSession {
   #animation = null
   #message = null
   #shopSelection = null
+  #returnableShop = false
+  #revisitingShop = false
   #summary = null
   #buildOpen = false
   #resourceInspectorOpen = false
@@ -149,6 +151,8 @@ export class GameSession {
     this.#animation = null
     this.#message = null
     this.#shopSelection = null
+    this.#returnableShop = false
+    this.#revisitingShop = false
     this.#summary = null
     this.#buildOpen = false
     this.#resourceInspectorOpen = false
@@ -157,6 +161,8 @@ export class GameSession {
 
   enterCurrentNode() {
     this.#clearMessage()
+    this.#returnableShop = false
+    this.#revisitingShop = false
     this.#node = this.#chapter.enterCurrentNode()
     if (this.#node.type === NodeType.EVENT) {
       this.#event = new FateSpringEvent({
@@ -317,7 +323,6 @@ export class GameSession {
       this.#relicCandidates = this.#relicReward.drawCandidates(3)
       if (this.#relicCandidates.length > 0) {
         this.#screen = Screen.RELIC_REWARD
-        this.#tutorial.trigger(TutorialHintId.RELIC_PASSIVE)
         this.#emit()
         return
       }
@@ -328,6 +333,7 @@ export class GameSession {
   selectBossRelic(relicId) {
     this.#tutorial.dismissActiveAnchor("relic", { advance: false })
     const relicReward = this.#relicReward.acquire(relicId)
+    this.#tutorial.trigger(TutorialHintId.RELIC_PASSIVE)
     this.#finishNode({
       success: true,
       resultType: "BATTLE_VICTORY",
@@ -416,10 +422,35 @@ export class GameSession {
   leaveShop() {
     this.#tutorial.dismissActiveAnchor("relic", { advance: false })
     this.#shopState = this.#shop.leave()
+    if (this.#revisitingShop) {
+      this.#revisitingShop = false
+      this.#screen = Screen.MAP
+      this.#shopSelection = null
+      this.#clearMessage()
+      this.#emit()
+      return
+    }
+    this.#returnableShop = true
     this.#finishNode({
       success: true,
       resultType: "SHOP_COMPLETED"
     })
+  }
+
+  returnToShop() {
+    if (
+      this.#screen !== Screen.MAP ||
+      !this.#returnableShop ||
+      !this.#shop
+    ) {
+      throw new Error("当前无法返回商店")
+    }
+    this.#shopState = this.#shop.resume()
+    this.#revisitingShop = true
+    this.#shopSelection = null
+    this.#screen = Screen.SHOP
+    this.#clearMessage()
+    this.#emit()
   }
 
   reportError(error) {
@@ -507,6 +538,8 @@ export class GameSession {
           }
         : null,
       message: this.#message,
+      canReturnToShop:
+        this.#screen === Screen.MAP && this.#returnableShop,
       tutorial: this.#tutorial.getState(),
       player: clonePlayer(this.#player),
       buildOpen: this.#buildOpen,

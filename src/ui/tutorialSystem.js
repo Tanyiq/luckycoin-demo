@@ -35,8 +35,8 @@ const hintDefinitions = Object.freeze({
   [TutorialHintId.RELIC_PASSIVE]: Object.freeze({
     id: TutorialHintId.RELIC_PASSIVE,
     anchor: "relic",
-    title: "遗物不需要投掷",
-    message: "遗物会自动触发，并在本局持续影响你的构筑。"
+    title: "遗物已经加入构筑",
+    message: "遗物会自动生效。点击右上角“查看构筑”，可以查看完整效果。"
   })
 })
 

@@ -227,6 +227,14 @@ export class ShopSystem {
     return this.getState()
   }
 
+  resume() {
+    if (this.#state.status !== ShopStatus.COMPLETED) {
+      throw new Error("商店仍在营业中")
+    }
+    this.#state.status = ShopStatus.BROWSING
+    return this.getState()
+  }
+
   #createInventory(config, random) {
     const validCoins = config.coinIds.filter(
       (coinId) => this.#coinConfigs[coinId]
