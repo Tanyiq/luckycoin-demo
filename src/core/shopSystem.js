@@ -9,6 +9,10 @@ import {
 } from "./chipSystem.js"
 import { RelicRewardSystem } from "./relicRewardSystem.js"
 import { RelicSystem, RelicTrigger } from "./relicSystem.js"
+import {
+  cloneDiscoveryRecord,
+  recordCoinDiscovery
+} from "./discoverySystem.js"
 
 export const ShopStatus = Object.freeze({
   BROWSING: "BROWSING",
@@ -59,8 +63,12 @@ function clonePlayer(player) {
     ...player,
     coins: player.coins.map((coin) => ({ ...coin })),
     unlockedCoinIds: [...player.unlockedCoinIds],
+    discovery: cloneDiscoveryRecord(player.discovery),
     relicIds: [...player.relicIds],
     bannedRelicIds: [...player.bannedRelicIds],
+    metaUnlockedRelicIds: [
+      ...(player.metaUnlockedRelicIds ?? [])
+    ],
     runStats: { ...player.runStats }
   }
 }
@@ -126,7 +134,10 @@ export class ShopSystem {
     if (this.#player.coins.length <= 3) {
       return []
     }
-    return this.#player.coins.map((coin) => ({ ...coin }))
+    return this.#player.coins.map((coin) => ({
+      ...coin,
+      recyclePayout: this.#getRecyclePayout(coin)
+    }))
   }
 
   buyCoin(listingId) {
@@ -145,6 +156,7 @@ export class ShopSystem {
     if (!this.#player.unlockedCoinIds.includes(coin.coinId)) {
       this.#player.unlockedCoinIds.push(coin.coinId)
     }
+    recordCoinDiscovery(this.#player, coin.coinId)
     return this.#completeListing(listing, {
       category: listing.category,
       coinId: coin.coinId,
@@ -204,17 +216,18 @@ export class ShopSystem {
       throw new Error("找不到要回收的硬币")
     }
     const [coin] = this.#player.coins.splice(index, 1)
+    const payout = this.#getRecyclePayout(coin)
     this.#player.runStats.removeCount += 1
     const relicResult = this.#relicSystem.trigger(
       RelicTrigger.COIN_REMOVED,
       { player: this.#player }
     )
-    earnChips(this.#player, listing.payout)
+    earnChips(this.#player, payout)
     return this.#completeListing(listing, {
       category: listing.category,
       coinId: coin.coinId,
       coinUid,
-      payout: listing.payout,
+      payout,
       logs: relicResult.logs
     })
   }
@@ -328,7 +341,6 @@ export class ShopSystem {
         category: ShopCategory.RECYCLE,
         contentId: null,
         price: 0,
-        payout: this.#priceTable.recyclePayout,
         soldOut: false
       }
     ]
@@ -348,6 +360,16 @@ export class ShopSystem {
       throw new Error("该商品已经售罄")
     }
     return listing
+  }
+
+  #getRecyclePayout(coin) {
+    const rarity =
+      this.#coinConfigs[coin.coinId]?.rarity ?? "STARTER"
+    const purchasePrice = this.#priceTable.coins[rarity]
+    if (!Number.isFinite(purchasePrice)) {
+      throw new Error(`缺少硬币回收价格：${coin.coinId}`)
+    }
+    return Math.floor(purchasePrice / 2)
   }
 
   #requireAffordable(price) {

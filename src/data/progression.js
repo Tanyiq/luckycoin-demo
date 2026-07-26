@@ -1,4 +1,12 @@
-export const experienceThresholds = Object.freeze([0, 30, 80])
+export const experienceThresholds = Object.freeze([
+  0,
+  30,
+  80,
+  140,
+  210,
+  290,
+  380
+])
 
 export const coinPools = Object.freeze({
   chapter1Basic: Object.freeze(["fire", "defense", "luck"]),
@@ -49,6 +57,47 @@ export const battleRewards = Object.freeze({
     battleId: "fate_devourer",
     exp: 0,
     chips: 60,
+    mode: "none"
+  }),
+  oddsOperator: Object.freeze({
+    battleId: "odds_operator",
+    exp: 35,
+    chips: 30,
+    mode: "choice",
+    coinPoolId: "expanded"
+  }),
+  luckThief: Object.freeze({
+    battleId: "luck_thief",
+    exp: 35,
+    chips: 30,
+    mode: "choice",
+    coinPoolId: "expanded"
+  }),
+  probabilityGambler: Object.freeze({
+    battleId: "probability_gambler",
+    exp: 35,
+    chips: 30,
+    mode: "choice",
+    coinPoolId: "expanded"
+  }),
+  ruleTamperer: Object.freeze({
+    battleId: "rule_tamperer",
+    exp: 60,
+    chips: 55,
+    mode: "choice",
+    coinPoolId: "expanded"
+  }),
+  casinoCreditor: Object.freeze({
+    battleId: "casino_creditor",
+    exp: 60,
+    chips: 55,
+    mode: "choice",
+    coinPoolId: "expanded"
+  }),
+  probabilityDealer: Object.freeze({
+    battleId: "probability_dealer",
+    exp: 80,
+    chips: 90,
     mode: "none"
   })
 })

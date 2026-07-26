@@ -96,10 +96,17 @@ function playerHeader(player, relicDefinitions, options = {}) {
         <span>筹码 <b>${player.chips}</b></span>
         <span>硬币 <b>${player.coins.length}</b></span>
         <span>遗物 <b>${relicList.length}</b></span>
+        <span>概率残片 <b>${options.probabilityFragments ?? 0}</b></span>
         <button class="build-button" data-action="open-build"
           ${options.disabled ? "disabled" : ""}>
           查看构筑 <b>${player.coins.length}</b> / <b>${relicList.length}</b>
         </button>
+        <button class="build-button collection-button"
+          data-action="open-collection"
+          ${options.disabled ? "disabled" : ""}>图鉴</button>
+        <button class="build-button meta-button"
+          data-action="open-meta"
+          ${options.disabled ? "disabled" : ""}>局外权限</button>
         <button class="build-button resource-button"
           data-action="open-resources">资源</button>
       </div>
@@ -129,7 +136,9 @@ function pageShell(snapshot, content, options = {}) {
   return `
     <div class="app-shell ${options.shellClass ?? ""}">
       ${playerHeader(headerPlayer, snapshot.configs.relics, {
-        disabled: snapshot.busy
+        disabled: snapshot.busy,
+        probabilityFragments:
+          snapshot.profile.metaProgress.probabilityFragments
       })}
       <main class="game-stage ${options.stageClass ?? ""}">
         ${content}
@@ -140,6 +149,8 @@ function pageShell(snapshot, content, options = {}) {
           : ""
       }
       ${snapshot.buildOpen ? buildDrawer(snapshot) : ""}
+      ${snapshot.collection?.open ? collectionDrawer(snapshot) : ""}
+      ${snapshot.metaProgress?.open ? metaProgressDrawer(snapshot) : ""}
       ${
         snapshot.resourceInspector?.open
           ? resourceInspector(snapshot)
@@ -176,6 +187,7 @@ function relicChips(relicList) {
 }
 
 function mapScreen(snapshot) {
+  const isChapter0 = snapshot.chapterConfig.id === "chapter_0"
   const map = presentMap(
     snapshot.chapterConfig,
     snapshot.chapterState,
@@ -188,6 +200,11 @@ function mapScreen(snapshot) {
       const enemy = node.enemyId
         ? snapshot.configs.enemies[node.enemyId]
         : null
+      const event = node.eventId
+        ? Object.values(snapshot.configs.events ?? {}).find(
+            ({ id }) => id === node.eventId
+          )
+        : null
       return `
         <li class="map-step">
           <article class="map-node status-${node.status.toLowerCase()}
@@ -199,6 +216,8 @@ function mapScreen(snapshot) {
               ${
                 enemy
                   ? `<small>即将面对：${escapeHtml(enemy.name)}</small>`
+                  : event
+                    ? `<small>可能业务：${escapeHtml(event.name)}</small>`
                   : ""
               }
             </div>
@@ -225,10 +244,14 @@ function mapScreen(snapshot) {
     `
       <section class="map-layout">
         <div class="map-copy">
-          <span class="eyebrow">CHAPTER 0</span>
+          <span class="eyebrow">${isChapter0 ? "CHAPTER 0" : "CHAPTER 1"}</span>
           <h1>${escapeHtml(map.chapterName)}</h1>
           <p class="lead">
-            你只是刮中了五百万。概率世界认为这件事值得一次正式审查。
+            ${
+              isChapter0
+                ? "你只是刮中了五百万。概率世界认为这件事值得一次正式审查。"
+                : "赌场开始怀疑你的幸运来源，并把怀疑安排成了七项连续业务。"
+            }
           </p>
           <div class="current-node-card">
             <span>当前安排</span>
@@ -236,7 +259,10 @@ function mapScreen(snapshot) {
             ${
               current.enemy
                 ? `<p>${escapeHtml(current.enemy.description)}</p>`
-                : `<p>该节点不会主动攻击你。至少合同上如此。</p>`
+                : `<p>${escapeHtml(
+                    current.description ??
+                      "该节点不会主动攻击你。至少合同上如此。"
+                  )}</p>`
             }
             <div class="current-stats">
               <span>HP ${current.player.hp}/${current.player.maxHp}</span>
@@ -266,8 +292,10 @@ function mapScreen(snapshot) {
             snapshot.chapterState.completedNodeIds.length === 0
               ? `
                 <details class="story-note">
-                  <summary>查看入场经过</summary>
-                  ${snapshot.narrative.chapter0Intro
+                  <summary>${isChapter0 ? "查看入场经过" : "查看外围通知"}</summary>
+                  ${(isChapter0
+                    ? snapshot.narrative.chapter0Intro
+                    : snapshot.narrative.chapter1Intro)
                     .map((line) => `<p>${escapeHtml(line)}</p>`)
                     .join("")}
                 </details>
@@ -289,7 +317,8 @@ function coinCard(coin, action, value, options = {}) {
     : ""
   return `
     <button
-      class="coin-card type-${coin.type} rarity-${coin.rarity.toLowerCase()}
+      class="coin-card coin-${escapeHtml(coin.id)}
+        type-${coin.type} rarity-${coin.rarity.toLowerCase()}
         ${resultClass} ${options.selected ? "is-selected" : ""}
         ${options.muted ? "is-muted" : ""}"
       data-action="${action}"
@@ -354,6 +383,17 @@ function intentCard(intent) {
       <span>下一步行为</span>
       <strong>${escapeHtml(intent.name)}</strong>
       <p>${escapeHtml(intent.description)}</p>
+      ${
+        intent.indicators?.length
+          ? `<div class="intent-indicators">${intent.indicators
+              .map(
+                (indicator) =>
+                  `<small>${escapeHtml(indicator.label)}：` +
+                  `<b>${escapeHtml(indicator.value)}</b></small>`
+              )
+              .join("")}</div>`
+          : ""
+      }
     </div>
   `
 }
@@ -399,6 +439,8 @@ function battleScreen(snapshot) {
   const playerHealing =
     activeStep?.type === "PLAYER_EFFECT" &&
     healEffectTypes.has(activeStep.effect?.type)
+  const pendingDecision = snapshot.battleState.pendingDecision
+  const selectedCoinUids = new Set(snapshot.selectedCoinUids ?? [])
   return pageShell(
     snapshot,
     `
@@ -480,6 +522,32 @@ function battleScreen(snapshot) {
             </div>
             <p>概率已经包含当前幸运修正。</p>
           </div>
+          ${
+            pendingDecision
+              ? `
+                <div class="battle-decision">
+                  <span class="eyebrow">需要你的决定</span>
+                  <h3>${escapeHtml(pendingDecision.title)}</h3>
+                  <p>${escapeHtml(pendingDecision.message)}</p>
+                  <div class="decision-actions">
+                    ${pendingDecision.options
+                      .map(
+                        (option) => `
+                          <button
+                            class="${option.id === "accept" ? "primary-button" : "secondary-button"}"
+                            data-action="battle-decision"
+                            data-value="${escapeHtml(option.id)}"
+                            ${option.enabled ? "" : "disabled"}
+                          >
+                            ${escapeHtml(option.label)}
+                          </button>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                </div>
+              `
+              : `
           <div class="coin-grid">
             ${battle.coins
               .map((coin) =>
@@ -491,13 +559,37 @@ function battleScreen(snapshot) {
                       "COIN_TOSSED" &&
                     snapshot.animation.activeStep.coinUid ===
                       coin.uid,
-                  selected: resolvingUids.has(coin.uid),
+                  selected:
+                    resolvingUids.has(coin.uid) ||
+                    selectedCoinUids.has(coin.uid),
                   muted:
                     snapshot.busy && !resolvingUids.has(coin.uid)
                 })
               )
               .join("")}
           </div>
+          ${
+            snapshot.battleState.maxCoinsPerTurn > 1 &&
+            !snapshot.busy
+              ? `
+                <div class="extra-bet-bar">
+                  <div>
+                    <strong>追加下注</strong>
+                    <span>${
+                      snapshot.battleState.extraBetSources.join("、") ||
+                      "本回合权限"
+                    } · 已选择 ${selectedCoinUids.size}/${snapshot.battleState.maxCoinsPerTurn}</span>
+                  </div>
+                  <button class="primary-button" data-action="confirm-coins"
+                    ${selectedCoinUids.size > 0 ? "" : "disabled"}>
+                    确认投掷
+                  </button>
+                </div>
+              `
+              : ""
+          }
+          `
+          }
           ${
             snapshot.animation
               ? actionTrack(snapshot.animation)
@@ -794,7 +886,11 @@ function targetCoinList(title, targets, snapshot, action, note = "") {
               <span class="mini-coin">${escapeHtml(coin.name.slice(0, 1))}</span>
               <span>
                 <strong>${escapeHtml(coin.name)}</strong>
-                <small>Lv.${coin.level} · ${coin.typeName}</small>
+                <small>Lv.${coin.level} · ${coin.typeName}${
+                  instance.recyclePayout !== undefined
+                    ? ` · 回收 +${instance.recyclePayout}筹码`
+                    : ""
+                }</small>
               </span>
               <span class="target-arrow">→</span>
             </button>
@@ -811,9 +907,9 @@ function eventScreen(snapshot) {
   if (state.status === "SELECTING_OPTION") {
     body = `
       <span class="event-symbol">✦</span>
-      <span class="eyebrow">命运泉水</span>
-      <h1>经审计的奇迹</h1>
-      ${snapshot.narrative.fateSpringIntro
+      <span class="eyebrow">${escapeHtml(state.name)}</span>
+      <h1>${escapeHtml(state.title)}</h1>
+      ${(state.description ?? snapshot.narrative.fateSpringIntro)
         .map((line) => `<p>${escapeHtml(line)}</p>`)
         .join("")}
       <div class="event-options">
@@ -833,7 +929,9 @@ function eventScreen(snapshot) {
     `
   } else if (state.status === "SELECTING_UPGRADE_TARGET") {
     body = targetCoinList(
-      "献祭20生命，强化一枚硬币",
+      state.eventId === "fate_spring"
+        ? "献祭20生命，强化一枚硬币"
+        : "选择需要翻新的硬币",
       snapshot.eventUpgradeTargets,
       snapshot,
       "event-upgrade"
@@ -844,7 +942,7 @@ function eventScreen(snapshot) {
       <h1>手续办理完成</h1>
       <p>${eventResultText(state.result, snapshot)}</p>
       <button class="primary-button" data-action="complete-event">
-        离开泉水
+        离开事件
       </button>
     `
   }
@@ -855,6 +953,9 @@ function eventScreen(snapshot) {
 }
 
 function eventResultText(result, snapshot) {
+  if (result.messages?.length) {
+    return result.messages.map((message) => escapeHtml(message)).join("；")
+  }
   if (result.optionId === "recover_hp") {
     return `恢复了 ${result.recoveredHp} 点生命。`
   }
@@ -926,11 +1027,11 @@ function shopListing(item, snapshot) {
     kind = "服务"
   } else {
     title = "硬币回收"
-    detail = `最多回收一枚，获得 ${item.payout} 筹码`
+    detail = "最多回收一枚，返还该稀有度购买价的一半"
     kind = "回收"
   }
   const price =
-    item.category === "RECYCLE" ? `+${item.payout}` : `${item.price}`
+    item.category === "RECYCLE" ? "估价" : `${item.price}`
   return `
     <button class="shop-item" data-action="shop-listing"
       data-value="${item.listingId}" ${item.soldOut ? "disabled" : ""}>
@@ -994,6 +1095,7 @@ function summaryScreen(snapshot) {
             <div><span>剩余HP</span><strong>${summary.remainingHp}/${summary.maxHp}</strong></div>
             <div><span>幸运</span><strong>${formatLuck(summary.luck)}</strong></div>
             <div><span>筹码</span><strong>${summary.remainingChips}</strong></div>
+            <div><span>概率残片</span><strong>${snapshot.profile.metaProgress.probabilityFragments}</strong></div>
             <div><span>完成节点</span><strong>${summary.completedNodeCount}</strong></div>
             <div><span>强化次数</span><strong>${summary.upgradeCount}</strong></div>
             <div><span>删除/回收</span><strong>${summary.removeCount}</strong></div>
@@ -1013,6 +1115,136 @@ function summaryScreen(snapshot) {
       </section>
     `
   )
+}
+
+function chapterPendingScreen(snapshot) {
+  const player = snapshot.player
+  return pageShell(
+    snapshot,
+    `
+      <section class="summary-layout">
+        <article class="summary-card">
+          <span class="summary-seal victory">Ⅰ</span>
+          <span class="eyebrow">CASINO OUTER RING</span>
+          <h1>外围审查通知</h1>
+          <p>
+            入场手续已经办妥。赌场仍然认为你的五百万过于突然，
+            因此为你安排了进一步的幸运来源复核。
+          </p>
+          <div class="summary-grid">
+            <div><span>当前HP</span><strong>${player.hp}/${player.maxHp}</strong></div>
+            <div><span>等级</span><strong>Lv.${player.level}</strong></div>
+            <div><span>筹码</span><strong>${player.chips}</strong></div>
+            <div><span>硬币</span><strong>${player.coins.length}</strong></div>
+            <div><span>遗物</span><strong>${player.relicIds.length}</strong></div>
+            <div><span>下一章节</span><strong>章节1</strong></div>
+          </div>
+          <p class="pending-note">请携带现有财物进入。审查期间遗失概不负责。</p>
+          <button class="primary-button" data-action="start-chapter">
+            进入赌场外围
+          </button>
+        </article>
+      </section>
+    `
+  )
+}
+
+function metaProgressDrawer(snapshot) {
+  const balance =
+    snapshot.profile.metaProgress.probabilityFragments
+  return `
+    <div class="build-overlay">
+      <button class="drawer-backdrop" data-action="close-meta"
+        aria-label="关闭局外权限"></button>
+      <aside class="build-drawer meta-drawer" role="dialog"
+        aria-modal="true" aria-label="局外权限">
+        <header class="build-drawer-heading">
+          <div>
+            <span class="eyebrow">PROBABILITY CLEARANCE</span>
+            <h1>概率权限档案</h1>
+          </div>
+          <button class="drawer-close" data-action="close-meta"
+            aria-label="关闭">×</button>
+        </header>
+        <section class="meta-balance">
+          <div>
+            <span>可用资源</span>
+            <strong>${balance} 枚概率残片</strong>
+          </div>
+          <p>击败Boss会留下概率残片。权限只会在下一次新Run开始时写入规则。</p>
+        </section>
+        ${
+          snapshot.metaProgress.canPurchase
+            ? ""
+            : `<p class="meta-lock-note">当前Run仍在进行。你可以查看权限，但需要在本局结束后激活。</p>`
+        }
+        <div class="meta-branches">
+          ${snapshot.metaProgress.branches
+            .map(
+              (branch) => `
+                <section class="meta-branch ${
+                  branch.comingSoon ? "is-coming" : ""
+                }">
+                  <header>
+                    <div>
+                      <span class="eyebrow">${escapeHtml(branch.id)}</span>
+                      <h2>${escapeHtml(branch.name)}</h2>
+                    </div>
+                    ${branch.comingSoon ? "<b>暂未开放</b>" : ""}
+                  </header>
+                  <p>${escapeHtml(branch.description)}</p>
+                  ${
+                    branch.comingSoon
+                      ? `<div class="meta-placeholder">独立收藏池将在后续版本开放，不会提前混入主线奖励。</div>`
+                      : `<div class="meta-node-list">
+                          ${branch.nodes
+                            .map((node) => {
+                              const requirements =
+                                node.missingRequirements.length > 0
+                                  ? node.missingRequirements.join("；")
+                                  : ""
+                              const canBuy =
+                                snapshot.metaProgress.canPurchase &&
+                                node.affordable
+                              return `
+                                <article class="meta-node ${
+                                  node.maxed ? "is-maxed" : ""
+                                }">
+                                  <div class="meta-node-copy">
+                                    <div>
+                                      <strong>${escapeHtml(node.name)}</strong>
+                                      <small>等级 ${node.rank}/${node.maxRank}</small>
+                                    </div>
+                                    <p>${escapeHtml(node.description)}</p>
+                                    ${
+                                      requirements
+                                        ? `<em>${escapeHtml(requirements)}</em>`
+                                        : ""
+                                    }
+                                  </div>
+                                  <button data-action="buy-meta-talent"
+                                    data-value="${escapeHtml(node.id)}"
+                                    ${canBuy ? "" : "disabled"}>
+                                    ${
+                                      node.maxed
+                                        ? "已激活"
+                                        : `${node.nextCost} 残片`
+                                    }
+                                  </button>
+                                </article>
+                              `
+                            })
+                            .join("")}
+                        </div>`
+                  }
+                </section>
+              `
+            )
+            .join("")}
+        </div>
+      </aside>
+    </div>
+  `
 }
 
 function buildDrawer(snapshot) {
@@ -1143,6 +1375,123 @@ function buildDrawer(snapshot) {
   `
 }
 
+function collectionDrawer(snapshot) {
+  const discoveredCoins = new Set(
+    snapshot.collection.discovery.coinIds
+  )
+  const discoveredRelics = new Set(
+    snapshot.collection.discovery.relicIds
+  )
+  const coinEntries = Object.values(snapshot.configs.coins).map(
+    (config) => ({
+      discovered: discoveredCoins.has(config.id),
+      coin: hydrateCoin(
+        { coinId: config.id, level: 1 },
+        snapshot.configs.coins
+      )
+    })
+  )
+  const relicEntries = presentRelics(
+    Object.keys(snapshot.configs.relics),
+    snapshot.configs.relics
+  ).map((relic) => ({
+    discovered: discoveredRelics.has(relic.id),
+    relic
+  }))
+
+  return `
+    <div class="build-overlay collection-overlay">
+      <button class="drawer-backdrop" data-action="close-collection"
+        aria-label="关闭图鉴"></button>
+      <aside class="build-drawer collection-drawer" role="dialog"
+        aria-modal="true" aria-label="游戏图鉴">
+        <header class="build-drawer-heading">
+          <div>
+            <span class="eyebrow">DISCOVERY ARCHIVE</span>
+            <h1>概率世界图鉴</h1>
+          </div>
+          <button class="drawer-close" data-action="close-collection"
+            aria-label="关闭图鉴">×</button>
+        </header>
+
+        <section class="collection-section">
+          <div class="build-section-heading">
+            <div>
+              <span class="eyebrow">COINS</span>
+              <h2>硬币图鉴</h2>
+            </div>
+          </div>
+          <div class="collection-grid coin-collection-grid">
+            ${coinEntries
+              .map(({ coin, discovered }) => `
+                <article class="collection-card coin-entry
+                  ${discovered ? "is-discovered" : "is-undiscovered"}
+                  type-${coin.type}">
+                  <header>
+                    <span class="collection-glyph">${discovered
+                      ? escapeHtml(coin.name.slice(0, 1))
+                      : "?"}</span>
+                    <div>
+                      <strong>${discovered
+                        ? escapeHtml(coin.name)
+                        : "未发现硬币"}</strong>
+                      <small>${escapeHtml(coin.rarityName)} · ${escapeHtml(coin.typeName)}</small>
+                    </div>
+                    <b>${formatRate(coin.frontRate)}</b>
+                  </header>
+                  <div class="collection-effect front">
+                    <span>正面</span>
+                    <p>${discovered
+                      ? escapeHtml(formatEffect(coin.frontEffect))
+                      : "效果尚未发现"}</p>
+                  </div>
+                  <div class="collection-effect back">
+                    <span>反面</span>
+                    <p>${discovered
+                      ? escapeHtml(formatEffect(coin.backEffect))
+                      : "效果尚未发现"}</p>
+                  </div>
+                </article>
+              `)
+              .join("")}
+          </div>
+        </section>
+
+        <section class="collection-section">
+          <div class="build-section-heading">
+            <div>
+              <span class="eyebrow">RELICS</span>
+              <h2>遗物图鉴</h2>
+            </div>
+          </div>
+          <div class="collection-grid relic-collection-grid">
+            ${relicEntries
+              .map(({ relic, discovered }) => `
+                <article class="collection-card relic-entry
+                  rarity-${relic.rarity.toLowerCase()}
+                  ${discovered ? "is-discovered" : "is-undiscovered"}">
+                  <header>
+                    <span class="collection-glyph">${discovered ? "◆" : "?"}</span>
+                    <div>
+                      <strong>${discovered
+                        ? escapeHtml(relic.name)
+                        : "未发现遗物"}</strong>
+                      <small>${escapeHtml(relic.rarityName)}</small>
+                    </div>
+                  </header>
+                  <p>${discovered
+                    ? escapeHtml(relic.description)
+                    : "效果尚未发现"}</p>
+                </article>
+              `)
+              .join("")}
+          </div>
+        </section>
+      </aside>
+    </div>
+  `
+}
+
 function resourceInspector(snapshot) {
   const resources = snapshot.resourceInspector.resources
   const available = resources.filter(
@@ -1214,6 +1563,7 @@ export function render(snapshot) {
     [Screen.EVENT]: eventScreen,
     [Screen.SHOP]: shopScreen,
     [Screen.RELIC_REWARD]: relicRewardScreen,
+    [Screen.CHAPTER_PENDING]: chapterPendingScreen,
     [Screen.SUMMARY]: summaryScreen
   }
   return screens[snapshot.screen](snapshot)

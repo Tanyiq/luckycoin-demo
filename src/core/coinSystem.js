@@ -84,9 +84,9 @@ export class CoinSystem {
     this.#random = random
   }
 
-  drawCandidates() {
+  drawCandidates({ isEligible = () => true } = {}) {
     return sampleWithoutReplacement(
-      this.#coins,
+      this.#coins.filter(isEligible),
       this.#drawCount,
       this.#random
     )

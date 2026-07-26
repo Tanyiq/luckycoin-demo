@@ -1,4 +1,5 @@
 import { GameSession } from "./gameSession.js"
+import { LocalStorageSaveRepository } from "../core/saveRepository.js"
 import { render, renderTutorial } from "./render.js"
 import {
   AudioFeedback,
@@ -12,7 +13,9 @@ import { inspectBrowserResources } from "./resourceInspector.js"
 
 const root = document.querySelector("#app")
 const tutorialRoot = document.querySelector("#tutorial-root")
-const session = new GameSession()
+const session = new GameSession({
+  saveRepository: new LocalStorageSaveRepository()
+})
 const audioFeedback = new AudioFeedback({
   driver: new HtmlAudioDriver()
 })
@@ -47,7 +50,10 @@ const actions = {
     document.querySelector("#entry-overlay")?.remove()
   },
   "enter-node": () => session.enterCurrentNode(),
+  "start-chapter": () => session.startPendingChapter(),
   "play-coin": (value) => session.playCoin(value),
+  "confirm-coins": () => session.confirmCoinSelection(),
+  "battle-decision": (value) => session.resolveBattleDecision(value),
   "continue-reward": () => session.continueReward(),
   "claim-fixed-reward": () => session.claimFixedReward(),
   "reward-type": (value) => session.chooseRewardType(value),
@@ -67,6 +73,11 @@ const actions = {
   "restart-run": () => session.startRun(),
   "open-build": () => session.openBuild(),
   "close-build": () => session.closeBuild(),
+  "open-collection": () => session.openCollection(),
+  "close-collection": () => session.closeCollection(),
+  "open-meta": () => session.openMetaProgress(),
+  "close-meta": () => session.closeMetaProgress(),
+  "buy-meta-talent": (value) => session.purchaseMetaTalent(value),
   "open-resources": async () => {
     session.openResourceInspector()
     session.updateResourceStatuses(
@@ -107,6 +118,8 @@ document.addEventListener("click", async (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     session.closeBuild()
+    session.closeCollection()
+    session.closeMetaProgress()
     session.closeResourceInspector()
   }
 })

@@ -11,7 +11,14 @@ export const narrative = Object.freeze({
     "旁边的工作人员提醒你：免费项目只包括恢复，改变人生需要付费。"
   ]),
   chapter0Victory:
-    "首席赔率官批准了你的申诉，并将本次胜利登记为个别案例。"
+    "首席赔率官批准了你的入场申诉，并将本次胜利登记为个别案例。",
+  chapter1Intro: Object.freeze([
+    "你通过了入场审查，但五百万仍处于“来源值得怀疑”状态。",
+    "赌场外围的工作人员开始逐项检查你的好运、筹码和判断力。",
+    "他们保证流程完全公平。流程本身对此尚不知情。"
+  ]),
+  chapter1Victory:
+    "概率庄家承认奖金暂时属于你，并把“暂时”印在了字体最小的位置。"
 })
 
 export const battleFlavor = Object.freeze({

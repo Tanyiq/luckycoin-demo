@@ -173,36 +173,36 @@ export const coins = Object.freeze({
     frontEffect: Object.freeze({
       type: "multiDamage",
       hits: 3,
-      damagePerHit: 7
+      damagePerHit: 8
     }),
     backEffect: Object.freeze({
       type: "multiDamage",
       hits: 2,
-      damagePerHit: 4
+      damagePerHit: 6
     }),
     levels: Object.freeze({
       1: Object.freeze({
         frontEffect: Object.freeze({
           type: "multiDamage",
           hits: 3,
-          damagePerHit: 7
+          damagePerHit: 8
         }),
         backEffect: Object.freeze({
           type: "multiDamage",
           hits: 2,
-          damagePerHit: 4
+          damagePerHit: 6
         })
       }),
       2: Object.freeze({
         frontEffect: Object.freeze({
           type: "multiDamage",
           hits: 3,
-          damagePerHit: 9
+          damagePerHit: 10
         }),
         backEffect: Object.freeze({
           type: "multiDamage",
           hits: 2,
-          damagePerHit: 6
+          damagePerHit: 8
         })
       })
     })
@@ -431,25 +431,25 @@ export const coins = Object.freeze({
     frontEffect: Object.freeze({
       type: "luckDamage",
       baseDamage: 10,
-      minMultiplier: 1
+      minMultiplier: 2
     }),
-    backEffect: Object.freeze({ type: "damage", value: 5 }),
+    backEffect: Object.freeze({ type: "damage", value: 8 }),
     levels: Object.freeze({
       1: Object.freeze({
         frontEffect: Object.freeze({
           type: "luckDamage",
           baseDamage: 10,
-          minMultiplier: 1
+          minMultiplier: 2
         }),
-        backEffect: Object.freeze({ type: "damage", value: 5 })
+        backEffect: Object.freeze({ type: "damage", value: 8 })
       }),
       2: Object.freeze({
         frontEffect: Object.freeze({
           type: "luckDamage",
           baseDamage: 12,
-          minMultiplier: 1
+          minMultiplier: 2
         }),
-        backEffect: Object.freeze({ type: "damage", value: 8 })
+        backEffect: Object.freeze({ type: "damage", value: 10 })
       })
     })
   }),
@@ -459,7 +459,7 @@ export const coins = Object.freeze({
     flavor: "专为看到坏消息后第一反应是加注的人设计。",
     rarity: "RARE",
     type: "attack",
-    frontRate: 0.2,
+    frontRate: 0.7,
     frontEffect: Object.freeze({ type: "damage", value: 5 }),
     backEffect: Object.freeze({ type: "damage", value: 40 }),
     levels: Object.freeze({

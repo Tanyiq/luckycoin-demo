@@ -1,4 +1,6 @@
-export function createInitialPlayerProgress(playerConfig) {
+import { createDiscoveryRecord } from "./discoverySystem.js"
+
+export function createInitialPlayerProgress(playerConfig, options = {}) {
   let sequence = 0
   const coins = playerConfig.coinLoadout.flatMap(({ coinId, count }) =>
     Array.from({ length: count }, () => ({
@@ -8,19 +10,24 @@ export function createInitialPlayerProgress(playerConfig) {
     }))
   )
 
+  const initialCoinIds = [...new Set(coins.map(({ coinId }) => coinId))]
   return {
     id: playerConfig.id,
     name: playerConfig.name,
-    hp: playerConfig.initialHp,
-    maxHp: playerConfig.maxHp,
+    hp: playerConfig.initialHp + (options.maxHpBonus ?? 0),
+    maxHp: playerConfig.maxHp + (options.maxHpBonus ?? 0),
     luck: playerConfig.initialLuck ?? 0,
     level: 1,
     exp: 0,
-    chips: 0,
+    chips: options.startingChips ?? 0,
     coins,
-    unlockedCoinIds: [...new Set(coins.map(({ coinId }) => coinId))],
+    unlockedCoinIds: [...initialCoinIds],
+    discovery: createDiscoveryRecord({ coinIds: initialCoinIds }),
     relicIds: [],
     bannedRelicIds: [],
+    metaUnlockedRelicIds: [
+      ...new Set(options.unlockedRelicIds ?? [])
+    ],
     runStats: {
       upgradeCount: 0,
       removeCount: 0,
@@ -39,8 +46,12 @@ export function createBattlePlayerConfig(progress) {
     initialHp: progress.hp,
     initialShield: 0,
     initialLuck: progress.luck,
+    chips: progress.chips ?? 0,
     relicIds: [...progress.relicIds],
     bannedRelicIds: [...progress.bannedRelicIds],
+    metaUnlockedRelicIds: [
+      ...(progress.metaUnlockedRelicIds ?? [])
+    ],
     coinInstances: progress.coins.map((coin) => ({ ...coin }))
   }
 }
@@ -55,6 +66,10 @@ export function saveBattlePlayerState(progress, battleState) {
     throw new Error("缺少可保存的战斗玩家状态")
   }
   progress.hp = clamp(battleState.player.hp, 0, progress.maxHp)
+  progress.chips = Math.max(
+    0,
+    Math.floor(battleState.player.chips ?? progress.chips ?? 0)
+  )
   progress.relicIds = [
     ...(battleState.player.relicIds ?? progress.relicIds ?? [])
   ]

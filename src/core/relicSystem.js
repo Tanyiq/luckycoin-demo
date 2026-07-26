@@ -158,6 +158,15 @@ export class RelicSystem {
   }
 
   #applyOperation(relic, effect, context) {
+    if (effect.operation === "ADD_MAX_COINS_ON_INTERVAL") {
+      if (context.selectionCount % effect.interval === 0) {
+        context.maxCoinsPerTurn += effect.value
+        context.extraBetSources.push(relic.name)
+        context.logs.push(`${relic.name}：本次选择可以追加下注`)
+      }
+      return
+    }
+
     if (effect.operation === "ADD_DRAW_COUNT") {
       context.drawCount += effect.value
       context.logs.push(`${relic.name}：每回合额外抽取${effect.value}枚硬币`)

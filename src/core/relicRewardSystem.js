@@ -1,3 +1,6 @@
+import { recordRelicDiscovery } from "./discoverySystem.js"
+import { RelicSystem, RelicTrigger } from "./relicSystem.js"
+
 function drawUnique(items, count, random) {
   const pool = [...items]
   const selected = []
@@ -24,6 +27,8 @@ export class RelicRewardSystem {
       (id) =>
         !this.#player.relicIds.includes(id) &&
         !this.#player.bannedRelicIds.includes(id) &&
+        (!this.#definitions[id].metaLocked ||
+          (this.#player.metaUnlockedRelicIds ?? []).includes(id)) &&
         (!excludeSpecial ||
           this.#definitions[id].rarity !== "SPECIAL")
     )
@@ -42,6 +47,7 @@ export class RelicRewardSystem {
       throw new Error("该遗物不能获得")
     }
     this.#player.relicIds.push(relicId)
+    recordRelicDiscovery(this.#player, relicId)
     const acquired = new RelicSystem({
       relicDefinitions: this.#definitions,
       relicIds: [relicId],
@@ -65,4 +71,3 @@ export class RelicRewardSystem {
     return this.acquire(relicId)
   }
 }
-import { RelicSystem, RelicTrigger } from "./relicSystem.js"

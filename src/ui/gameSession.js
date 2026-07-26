@@ -1,10 +1,17 @@
 import { BattleEngine, BattleStatus } from "../core/battleEngine.js"
 import {
+  cloneDiscoveryRecord,
+  createDiscoveryRecord,
+  mergeDiscoveryRecords
+} from "../core/discoverySystem.js"
+import {
   ChapterController,
   ChapterStatus
 } from "../core/chapterController.js"
+import { createChapter1Config } from "../core/chapterMapGenerator.js"
 import {
   EventStatus,
+  ConfiguredEvent,
   FateSpringEvent
 } from "../core/eventSystem.js"
 import {
@@ -12,7 +19,12 @@ import {
   createInitialPlayerProgress,
   saveBattlePlayerState
 } from "../core/playerProgress.js"
+import {
+  getTalentState,
+  resolveChapterRunRules
+} from "../core/metaProgression.js"
 import { RelicRewardSystem } from "../core/relicRewardSystem.js"
+import { RunController, RunStatus } from "../core/runController.js"
 import {
   RewardStatus,
   RewardSystem
@@ -25,7 +37,7 @@ import { createRunSummary } from "../core/runSummary.js"
 import { chapters, NodeType } from "../data/chapters.js"
 import { coins } from "../data/coins.js"
 import { enemies } from "../data/enemies.js"
-import { gameConfig } from "../data/gameConfig.js"
+import { events as eventConfigs } from "../data/events.js"
 import { narrative } from "../data/narrative.js"
 import { players } from "../data/players.js"
 import {
@@ -39,6 +51,10 @@ import {
   resourceManifest
 } from "../data/resources.js"
 import { shops, shopPriceTables } from "../data/shops.js"
+import {
+  metaTalentBranches,
+  metaTalents
+} from "../data/metaProgression.js"
 import { createBattlePresentation } from "./battlePresentation.js"
 import {
   TutorialHintId,
@@ -52,6 +68,7 @@ export const Screen = Object.freeze({
   EVENT: "EVENT",
   SHOP: "SHOP",
   RELIC_REWARD: "RELIC_REWARD",
+  CHAPTER_PENDING: "CHAPTER_PENDING",
   SUMMARY: "SUMMARY"
 })
 
@@ -61,7 +78,11 @@ function clonePlayer(player) {
     coins: player.coins.map((coin) => ({ ...coin })),
     relicIds: [...player.relicIds],
     bannedRelicIds: [...player.bannedRelicIds],
+    metaUnlockedRelicIds: [
+      ...(player.metaUnlockedRelicIds ?? [])
+    ],
     unlockedCoinIds: [...player.unlockedCoinIds],
+    discovery: cloneDiscoveryRecord(player.discovery),
     runStats: { ...player.runStats }
   }
 }
@@ -79,9 +100,13 @@ const battleTutorialAnchors = Object.freeze([
 export class GameSession {
   #random
   #animationDuration
+  #runController
+  #runRules
   #listeners = new Set()
   #player
   #chapter
+  #chapterConfig = null
+  #pendingChapterId = null
   #node
   #battle
   #battleState
@@ -102,6 +127,10 @@ export class GameSession {
   #revisitingShop = false
   #summary = null
   #buildOpen = false
+  #collectionOpen = false
+  #metaProgressOpen = false
+  #selectedCoinUids = []
+  #discoveryRecord = createDiscoveryRecord()
   #resourceInspectorOpen = false
   #resourceStatuses = resourceManifest.map((resource) => ({
     id: resource.id,
@@ -113,11 +142,15 @@ export class GameSession {
 
   constructor({
     random = Math.random,
-    animationDuration = null
+    animationDuration = null,
+    saveRepository = undefined
   } = {}) {
     this.#random = random
     this.#animationDuration = animationDuration
-    this.startRun()
+    this.#runController = new RunController({
+      repository: saveRepository
+    })
+    this.#restoreOrStart()
   }
 
   subscribe(listener) {
@@ -127,18 +160,44 @@ export class GameSession {
   }
 
   startRun() {
+    this.#runController.clearCurrentRun()
     this.#tutorial.clearAnchors([
       ...battleTutorialAnchors,
       "reward",
       "relic"
     ])
-    this.#player = createInitialPlayerProgress(players.tutorialPlayer)
-    this.#chapter = new ChapterController({
-      chapterConfig: chapters.chapter0,
-      playerProgress: this.#player,
-      enemyConfigs: enemies
-    })
-    this.#chapter.startChapter()
+    this.#runRules = this.#runController.createNextRunRules()
+    this.#player = createInitialPlayerProgress(
+      players.tutorialPlayer,
+      {
+        maxHpBonus: this.#runRules.maxHpBonus,
+        startingChips: this.#runRules.startingChips,
+        unlockedRelicIds: this.#runRules.unlockedRelicIds
+      }
+    )
+    this.#discoveryRecord = mergeDiscoveryRecords(
+      this.#runController.getProfile().discovery,
+      this.#player.discovery
+    )
+    this.#player.discovery = this.#discoveryRecord
+    const startingChapterId =
+      this.#runController.getStartingChapterId()
+    this.#chapterConfig = chapters.chapter0
+    this.#pendingChapterId = null
+    if (startingChapterId === chapters.chapter0.id) {
+      this.#chapter = new ChapterController({
+        chapterConfig: this.#chapterConfig,
+        playerProgress: this.#player,
+        enemyConfigs: enemies
+      })
+      this.#chapter.startChapter()
+      this.#screen = Screen.MAP
+    } else {
+      this.#chapter = null
+      this.#chapterConfig = null
+      this.#pendingChapterId = startingChapterId
+      this.#screen = Screen.CHAPTER_PENDING
+    }
     this.#node = null
     this.#battle = null
     this.#reward = null
@@ -146,7 +205,6 @@ export class GameSession {
     this.#shop = null
     this.#relicReward = null
     this.#relicCandidates = []
-    this.#screen = Screen.MAP
     this.#busy = false
     this.#animation = null
     this.#message = null
@@ -155,7 +213,16 @@ export class GameSession {
     this.#revisitingShop = false
     this.#summary = null
     this.#buildOpen = false
+    this.#collectionOpen = false
+    this.#metaProgressOpen = false
+    this.#selectedCoinUids = []
     this.#resourceInspectorOpen = false
+    this.#runController.beginRun({
+      chapterId: startingChapterId,
+      player: this.#player,
+      mapState: this.#chapter?.getState() ?? null,
+      runRules: this.#runRules
+    })
     this.#emit()
   }
 
@@ -165,12 +232,29 @@ export class GameSession {
     this.#revisitingShop = false
     this.#node = this.#chapter.enterCurrentNode()
     if (this.#node.type === NodeType.EVENT) {
-      this.#event = new FateSpringEvent({
-        player: this.#player,
-        coinConfigs: coins,
-        relicDefinitions: relics,
-        random: this.#random
-      })
+      if (this.#node.eventId === "fate_spring") {
+        this.#event = new FateSpringEvent({
+          player: this.#player,
+          coinConfigs: coins,
+          relicDefinitions: relics,
+          random: this.#random
+        })
+      } else {
+        const eventConfig = findById(
+          eventConfigs,
+          this.#node.eventId
+        )
+        if (!eventConfig) {
+          throw new Error(`找不到事件配置：${this.#node.eventId}`)
+        }
+        this.#event = new ConfiguredEvent({
+          player: this.#player,
+          eventConfig,
+          coinConfigs: coins,
+          coinPools,
+          random: this.#random
+        })
+      }
       this.#eventState = this.#event.getState()
       this.#screen = Screen.EVENT
     } else if (this.#node.type === NodeType.SHOP) {
@@ -186,16 +270,26 @@ export class GameSession {
       this.#shopState = this.#shop.getState()
       this.#screen = Screen.SHOP
     } else {
+      const battleRules = resolveChapterRunRules(
+        this.#runRules,
+        this.#chapterConfig.id
+      )
       this.#battle = new BattleEngine({
         playerConfig: createBattlePlayerConfig(this.#player),
         enemyConfig: enemies[this.#node.enemyId],
         coinConfigs: coins,
         relicDefinitions: relics,
-        drawCount: gameConfig.drawCount,
-        maxCoinsPerTurn: gameConfig.maxCoinsPerTurn,
+        drawCount: battleRules.drawCount,
+        maxCoinsPerTurn: battleRules.baseMaxCoinsPerTurn,
+        selectionRules: {
+          ...battleRules.selectionRules,
+          isBossBattle:
+            this.#node.type === NodeType.BOSS_BATTLE
+        },
         random: this.#random
       })
       this.#battleState = this.#battle.start()
+      this.#selectedCoinUids = []
       this.#screen = Screen.BATTLE
       this.#tutorial.trigger(TutorialHintId.COIN_BASICS)
       this.#triggerLuckTutorial()
@@ -203,14 +297,55 @@ export class GameSession {
     this.#emit()
   }
 
-  async playCoin(coinUid) {
+  startPendingChapter() {
+    if (
+      this.#screen !== Screen.CHAPTER_PENDING ||
+      this.#pendingChapterId !== chapters.chapter1.id
+    ) {
+      throw new Error("当前没有可开始的章节")
+    }
+    this.#chapterConfig = createChapter1Config({
+      random: this.#random
+    })
+    this.#chapter = new ChapterController({
+      chapterConfig: this.#chapterConfig,
+      playerProgress: this.#player,
+      enemyConfigs: enemies
+    })
+    this.#chapter.startChapter()
+    this.#pendingChapterId = null
+    this.#screen = Screen.MAP
+    this.#emit()
+  }
+
+  async playCoin(coinUid, confirmedCoinUids = null) {
     if (this.#busy || this.#screen !== Screen.BATTLE) {
       return
     }
-    const selected = this.#battleState.drawnCoins.find(
-      (coin) => coin.uid === coinUid
+    if (
+      confirmedCoinUids === null &&
+      this.#battleState.maxCoinsPerTurn > 1
+    ) {
+      const index = this.#selectedCoinUids.indexOf(coinUid)
+      if (index >= 0) {
+        this.#selectedCoinUids.splice(index, 1)
+      } else if (
+        this.#selectedCoinUids.length <
+        this.#battleState.maxCoinsPerTurn
+      ) {
+        this.#selectedCoinUids.push(coinUid)
+      }
+      this.#emit()
+      return
+    }
+    const coinUids = confirmedCoinUids ?? [coinUid]
+    const selectedCoins = coinUids.map((uid) =>
+      this.#battleState.drawnCoins.find((coin) => coin.uid === uid)
     )
-    if (!selected?.isUsable) {
+    if (
+      coinUids.length < 1 ||
+      selectedCoins.some((coin) => !coin?.isUsable)
+    ) {
       throw new Error("当前生命不足以使用这枚硬币")
     }
 
@@ -218,9 +353,16 @@ export class GameSession {
       advance: false
     })
     this.#busy = true
+    this.#selectedCoinUids = []
     const beforeState = this.#battleState
     const logStart = beforeState.logs.length
-    this.#battleState = this.#battle.playCoins([coinUid])
+    this.#battleState = this.#battle.playCoins(coinUids)
+    if (this.#battleState.status === BattleStatus.PLAYER_DECIDING) {
+      this.#busy = false
+      this.#animation = null
+      this.#emit()
+      return
+    }
     const presentation = createBattlePresentation({
       beforeState,
       afterState: this.#battleState,
@@ -250,6 +392,76 @@ export class GameSession {
     this.#animation = null
     this.#busy = false
 
+    if (
+      this.#battleState.status === BattleStatus.VICTORY ||
+      this.#battleState.status === BattleStatus.DEFEAT
+    ) {
+      saveBattlePlayerState(this.#player, this.#battleState)
+    }
+    if (this.#battleState.status === BattleStatus.VICTORY) {
+      this.#openReward()
+    } else if (this.#battleState.status === BattleStatus.DEFEAT) {
+      this.#chapter.failCurrentNode({
+        success: false,
+        resultType: "BATTLE_DEFEAT"
+      })
+      this.#openSummary()
+    } else {
+      this.#triggerLuckTutorial()
+      this.#tutorial.advance()
+    }
+    this.#emit()
+  }
+
+  async confirmCoinSelection() {
+    if (
+      this.#screen !== Screen.BATTLE ||
+      this.#selectedCoinUids.length === 0
+    ) {
+      return
+    }
+    return this.playCoin(null, [...this.#selectedCoinUids])
+  }
+
+  async resolveBattleDecision(choice) {
+    if (
+      this.#busy ||
+      this.#screen !== Screen.BATTLE ||
+      this.#battleState.status !== BattleStatus.PLAYER_DECIDING
+    ) {
+      return
+    }
+    this.#busy = true
+    const beforeState = this.#battleState
+    const logStart = beforeState.logs.length
+    this.#battleState = this.#battle.resolveDecision(choice)
+    const presentation = createBattlePresentation({
+      beforeState,
+      afterState: this.#battleState,
+      nodeType: this.#node.type,
+      newLogs: this.#battleState.logs.slice(logStart)
+    })
+    for (
+      let stepIndex = 0;
+      stepIndex < presentation.steps.length;
+      stepIndex += 1
+    ) {
+      const activeStep = presentation.steps[stepIndex]
+      this.#animation = {
+        ...presentation,
+        activeStepIndex: stepIndex,
+        activeStep
+      }
+      this.#emit()
+      await new Promise((resolve) =>
+        setTimeout(
+          resolve,
+          this.#animationDuration ?? activeStep.duration
+        )
+      )
+    }
+    this.#animation = null
+    this.#busy = false
     if (
       this.#battleState.status === BattleStatus.VICTORY ||
       this.#battleState.status === BattleStatus.DEFEAT
@@ -463,6 +675,8 @@ export class GameSession {
       return
     }
     this.#resourceInspectorOpen = false
+    this.#collectionOpen = false
+    this.#metaProgressOpen = false
     this.#buildOpen = true
     this.#emit()
   }
@@ -472,8 +686,48 @@ export class GameSession {
     this.#emit()
   }
 
+  openCollection() {
+    if (this.#busy) {
+      return
+    }
+    this.#buildOpen = false
+    this.#resourceInspectorOpen = false
+    this.#metaProgressOpen = false
+    this.#collectionOpen = true
+    this.#emit()
+  }
+
+  closeCollection() {
+    this.#collectionOpen = false
+    this.#emit()
+  }
+
+  openMetaProgress() {
+    if (this.#busy) {
+      return
+    }
+    this.#buildOpen = false
+    this.#collectionOpen = false
+    this.#resourceInspectorOpen = false
+    this.#metaProgressOpen = true
+    this.#emit()
+  }
+
+  closeMetaProgress() {
+    this.#metaProgressOpen = false
+    this.#emit()
+  }
+
+  purchaseMetaTalent(talentId) {
+    this.#runController.purchaseTalent(talentId)
+    this.#message = `已激活“${metaTalents[talentId].name}”`
+    this.#emit()
+  }
+
   openResourceInspector() {
     this.#buildOpen = false
+    this.#collectionOpen = false
+    this.#metaProgressOpen = false
     this.#resourceInspectorOpen = true
     this.#emit()
   }
@@ -504,10 +758,16 @@ export class GameSession {
   }
 
   getSnapshot() {
-    const chapterState = this.#chapter.getState()
+    const chapterState = this.#chapter?.getState() ?? {
+      chapterId: this.#pendingChapterId,
+      status: ChapterStatus.NOT_STARTED,
+      currentNodeId: null,
+      completedNodeIds: [],
+      nodeStates: {}
+    }
     const currentNodeView =
       chapterState.status === ChapterStatus.IN_PROGRESS
-        ? this.#chapter.getCurrentNodeView()
+          ? this.#chapter?.getCurrentNodeView()
         : null
     return {
       screen: this.#screen,
@@ -542,7 +802,29 @@ export class GameSession {
         this.#screen === Screen.MAP && this.#returnableShop,
       tutorial: this.#tutorial.getState(),
       player: clonePlayer(this.#player),
+      selectedCoinUids: [...this.#selectedCoinUids],
       buildOpen: this.#buildOpen,
+      collection: {
+        open: this.#collectionOpen,
+        discovery: cloneDiscoveryRecord(
+          this.#runController.getProfile().discovery
+        )
+      },
+      metaProgress: {
+        open: this.#metaProgressOpen,
+        canPurchase:
+          this.#runController.getCurrentRun()?.status !==
+          RunStatus.ACTIVE,
+        branches: metaTalentBranches.map((branch) => ({
+          ...branch,
+          nodes: branch.nodes.map((id) =>
+            getTalentState(this.#runController.getProfile(), id)
+          )
+        }))
+      },
+      profile: this.#runController.getProfile(),
+      currentRun: this.#runController.getCurrentRun(),
+      pendingChapterId: this.#pendingChapterId,
       resourceInspector: {
         open: this.#resourceInspectorOpen,
         resources: resourceManifest.map((resource) => ({
@@ -554,7 +836,11 @@ export class GameSession {
         }))
       },
       buildPlayer: this.#getBuildPlayer(),
-      chapterConfig: chapters.chapter0,
+      chapterConfig: this.#chapterConfig ?? {
+        id: this.#pendingChapterId,
+        name: "章节1",
+        nodes: []
+      },
       chapterState,
       currentNodeView,
       narrative,
@@ -576,7 +862,7 @@ export class GameSession {
       shopTargets: this.#getShopTargets(),
       relicCandidates: [...this.#relicCandidates],
       summary: this.#summary,
-      configs: { coins, enemies, relics }
+      configs: { coins, enemies, relics, events: eventConfigs }
     }
   }
 
@@ -596,9 +882,29 @@ export class GameSession {
   }
 
   #finishNode(result) {
+    if (this.#node.type === NodeType.BOSS_BATTLE) {
+      const fragmentReward = this.#runController.awardBossVictory({
+        chapterId: this.#chapterConfig.id,
+        nodeId: this.#node.id
+      })
+      result = {
+        ...result,
+        fragmentReward
+      }
+    }
     this.#chapter.completeCurrentNode(result)
     if (this.#chapter.getState().status === ChapterStatus.COMPLETED) {
-      this.#openSummary()
+      if (this.#chapterConfig.id === chapters.chapter0.id) {
+        this.#runController.completeTutorialAndAdvance({
+          player: this.#player
+        })
+        this.#chapter = null
+        this.#chapterConfig = null
+        this.#pendingChapterId = "chapter_1"
+        this.#screen = Screen.CHAPTER_PENDING
+      } else {
+        this.#openSummary()
+      }
     } else {
       this.#screen = Screen.MAP
       this.#node = null
@@ -615,6 +921,21 @@ export class GameSession {
       relicDefinitions: relics
     })
     this.#screen = Screen.SUMMARY
+    if (this.#chapter.getState().status === ChapterStatus.FAILED) {
+      this.#runController.failRun({
+        player: this.#player,
+        mapState: this.#getPersistedMapState(),
+        summary: this.#summary
+      })
+    } else if (
+      this.#chapter.getState().status === ChapterStatus.COMPLETED
+    ) {
+      this.#runController.completeRun({
+        player: this.#player,
+        mapState: this.#getPersistedMapState(),
+        summary: this.#summary
+      })
+    }
   }
 
   #getShopTargets() {
@@ -690,7 +1011,131 @@ export class GameSession {
   }
 
   #emit() {
+    this.#discoveryRecord = this.#runController.recordDiscovery(
+      this.#player.discovery
+    )
+    this.#player.discovery = this.#discoveryRecord
+    if (this.#screen === Screen.MAP && this.#chapter) {
+      this.#runController.saveActiveRun({
+        chapterId: this.#chapterConfig.id,
+        player: this.#player,
+        mapState: this.#getPersistedMapState()
+      })
+    }
     const snapshot = this.getSnapshot()
     this.#listeners.forEach((listener) => listener(snapshot))
+  }
+
+  #restoreOrStart() {
+    const currentRun = this.#runController.getCurrentRun()
+    if (!currentRun) {
+      this.startRun()
+      return
+    }
+    this.#player = {
+      ...currentRun.player,
+      coins: currentRun.player.coins.map((coin) => ({ ...coin })),
+      relicIds: [...currentRun.player.relicIds],
+      bannedRelicIds: [...currentRun.player.bannedRelicIds],
+      metaUnlockedRelicIds: [
+        ...(currentRun.player.metaUnlockedRelicIds ?? [])
+      ],
+      unlockedCoinIds: [...currentRun.player.unlockedCoinIds],
+      runStats: { ...currentRun.player.runStats },
+      discovery: cloneDiscoveryRecord(
+        this.#runController.getProfile().discovery
+      )
+    }
+    this.#runRules = currentRun.runRules
+    this.#discoveryRecord = this.#player.discovery
+    this.#resetTransientState()
+    if (
+      currentRun.status === RunStatus.ACTIVE &&
+      currentRun.mapState
+    ) {
+      this.#chapterConfig =
+        currentRun.chapterId === chapters.chapter0.id
+          ? chapters.chapter0
+          : currentRun.mapState.generatedChapterConfig
+      this.#chapter = new ChapterController({
+        chapterConfig: this.#chapterConfig,
+        playerProgress: this.#player,
+        enemyConfigs: enemies,
+        runtimeState: currentRun.mapState
+      })
+      this.#screen = Screen.MAP
+    } else if (currentRun.status === RunStatus.DEFEAT) {
+      this.#chapterConfig =
+        currentRun.chapterId === chapters.chapter0.id
+          ? chapters.chapter0
+          : currentRun.mapState.generatedChapterConfig
+      this.#chapter = new ChapterController({
+        chapterConfig: this.#chapterConfig,
+        playerProgress: this.#player,
+        enemyConfigs: enemies,
+        runtimeState: currentRun.mapState
+      })
+      this.#summary = currentRun.summary
+      this.#screen = Screen.SUMMARY
+    } else if (currentRun.status === RunStatus.ACTIVE) {
+      this.#chapter = null
+      this.#chapterConfig = null
+      this.#pendingChapterId = currentRun.chapterId
+      this.#screen = Screen.CHAPTER_PENDING
+    } else {
+      this.#chapterConfig =
+        currentRun.mapState?.generatedChapterConfig ??
+        chapters.chapter1
+      this.#chapter = currentRun.mapState?.generatedChapterConfig
+        ? new ChapterController({
+            chapterConfig: this.#chapterConfig,
+            playerProgress: this.#player,
+            enemyConfigs: enemies,
+            runtimeState: currentRun.mapState
+          })
+        : null
+      this.#summary = currentRun.summary
+      this.#screen = Screen.SUMMARY
+    }
+  }
+
+  #getPersistedMapState() {
+    if (!this.#chapter) {
+      return null
+    }
+    const state = this.#chapter.getState()
+    return this.#chapterConfig.generated
+      ? {
+          ...state,
+          generatedChapterConfig: this.#chapterConfig
+        }
+      : state
+  }
+
+  #resetTransientState() {
+    this.#node = null
+    this.#battle = null
+    this.#battleState = null
+    this.#reward = null
+    this.#rewardState = null
+    this.#event = null
+    this.#eventState = null
+    this.#shop = null
+    this.#shopState = null
+    this.#relicReward = null
+    this.#relicCandidates = []
+    this.#busy = false
+    this.#animation = null
+    this.#message = null
+    this.#shopSelection = null
+    this.#returnableShop = false
+    this.#revisitingShop = false
+    this.#summary = null
+    this.#buildOpen = false
+    this.#collectionOpen = false
+    this.#metaProgressOpen = false
+    this.#selectedCoinUids = []
+    this.#resourceInspectorOpen = false
+    this.#pendingChapterId = null
   }
 }

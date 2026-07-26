@@ -131,7 +131,9 @@ export function presentBattle(state, relicDefinitions) {
         { ...coin, coinId: coin.id },
         Object.fromEntries([[coin.id, coin]])
       ),
-      frontRate: coin.finalFrontRate
+      frontRate: coin.finalFrontRate,
+      frontEffect: coin.displayFrontEffect ?? coin.frontEffect,
+      backEffect: coin.displayBackEffect ?? coin.backEffect
     })),
     logs: state.logs.slice(-8)
   }

@@ -5,6 +5,10 @@ import {
 } from "./coinProgression.js"
 import { RelicSystem, RelicTrigger } from "./relicSystem.js"
 import { earnChips } from "./chipSystem.js"
+import {
+  cloneDiscoveryRecord,
+  recordCoinDiscovery
+} from "./discoverySystem.js"
 
 export const RewardStatus = Object.freeze({
   SHOWING_EXP: "SHOWING_EXP",
@@ -27,8 +31,12 @@ function clonePlayer(player) {
     ...player,
     coins: player.coins.map((coin) => ({ ...coin })),
     unlockedCoinIds: [...player.unlockedCoinIds],
+    discovery: cloneDiscoveryRecord(player.discovery),
     relicIds: [...(player.relicIds ?? [])],
-    bannedRelicIds: [...(player.bannedRelicIds ?? [])]
+    bannedRelicIds: [...(player.bannedRelicIds ?? [])],
+    metaUnlockedRelicIds: [
+      ...(player.metaUnlockedRelicIds ?? [])
+    ]
   }
 }
 
@@ -259,6 +267,7 @@ export class RewardSystem {
     if (!this.#player.unlockedCoinIds.includes(coinId)) {
       this.#player.unlockedCoinIds.push(coinId)
     }
+    recordCoinDiscovery(this.#player, coinId)
     return coin
   }
 

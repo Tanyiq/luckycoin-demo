@@ -107,7 +107,7 @@ export const resourceManifest = Object.freeze([
     channel: "music",
     cue: "music_spring",
     name: "命运泉水音乐",
-    path: "./assets/audio/sad_dark_background.wav",
+    path: "./assets/audio/spring_short.mp3",
     required: true
   }),
   Object.freeze({
@@ -116,7 +116,7 @@ export const resourceManifest = Object.freeze([
     channel: "music",
     cue: "music_shop",
     name: "商店音乐",
-    path: "./assets/audio/peaceful_background.wav",
+    path: "./assets/audio/shop_short.mp3",
     required: true
   }),
   Object.freeze({
@@ -125,7 +125,7 @@ export const resourceManifest = Object.freeze([
     channel: "music",
     cue: "music_boss",
     name: "章节0 Boss音乐",
-    path: "./assets/audio/energy_background.wav",
+    path: "./assets/audio/boss_0.mp3",
     required: true
   })
 ])

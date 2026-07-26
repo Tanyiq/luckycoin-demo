@@ -21,28 +21,36 @@ export class ChapterController {
   #enemyConfigs
   #runtime
 
-  constructor({ chapterConfig, playerProgress, enemyConfigs }) {
+  constructor({
+    chapterConfig,
+    playerProgress,
+    enemyConfigs,
+    runtimeState = null
+  }) {
     this.#config = chapterConfig
     this.#player = playerProgress
     this.#enemyConfigs = enemyConfigs
-    this.#runtime = {
-      chapterId: chapterConfig.id,
-      status: ChapterStatus.NOT_STARTED,
-      currentNodeId: null,
-      completedNodeIds: [],
-      nodeStates: Object.fromEntries(
-        chapterConfig.nodes.map((node) => [
-          node.id,
-          {
-            nodeId: node.id,
-            status: MapNodeStatus.LOCKED,
-            attempts: 0,
-            result: null
-          }
-        ])
-      )
-    }
+    this.#runtime = runtimeState
+      ? this.#cloneRuntime(runtimeState)
+      : {
+          chapterId: chapterConfig.id,
+          status: ChapterStatus.NOT_STARTED,
+          currentNodeId: null,
+          completedNodeIds: [],
+          nodeStates: Object.fromEntries(
+            chapterConfig.nodes.map((node) => [
+              node.id,
+              {
+                nodeId: node.id,
+                status: MapNodeStatus.LOCKED,
+                attempts: 0,
+                result: null
+              }
+            ])
+          )
+        }
     this.#validateConfig()
+    this.#validateRuntime()
   }
 
   startChapter() {
@@ -76,6 +84,7 @@ export class ChapterController {
       id: node.id,
       type: node.type,
       title: node.title,
+      description: node.description,
       status: this.#runtime.nodeStates[node.id].status,
       enemy: enemy
         ? {
@@ -169,6 +178,30 @@ export class ChapterController {
           throw new Error(`后续节点不存在：${nextId}`)
         }
       }
+    }
+  }
+
+  #validateRuntime() {
+    if (this.#runtime.chapterId !== this.#config.id) {
+      throw new Error("章节存档与章节配置不匹配")
+    }
+    for (const node of this.#config.nodes) {
+      if (!this.#runtime.nodeStates[node.id]) {
+        throw new Error(`章节存档缺少节点：${node.id}`)
+      }
+    }
+  }
+
+  #cloneRuntime(runtime) {
+    return {
+      ...runtime,
+      completedNodeIds: [...runtime.completedNodeIds],
+      nodeStates: Object.fromEntries(
+        Object.entries(runtime.nodeStates).map(([id, state]) => [
+          id,
+          { ...state }
+        ])
+      )
     }
   }
 }

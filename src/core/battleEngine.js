@@ -17,6 +17,7 @@ import {
 export const BattleStatus = Object.freeze({
   CREATED: "CREATED",
   PLAYER_SELECTING: "PLAYER_SELECTING",
+  PLAYER_DECIDING: "PLAYER_DECIDING",
   RESOLVING: "RESOLVING",
   VICTORY: "VICTORY",
   DEFEAT: "DEFEAT"
@@ -40,7 +41,13 @@ function cloneCoin(coin) {
   return {
     ...coin,
     frontEffect: { ...coin.frontEffect },
-    backEffect: { ...coin.backEffect }
+    backEffect: { ...coin.backEffect },
+    displayFrontEffect: coin.displayFrontEffect
+      ? { ...coin.displayFrontEffect }
+      : undefined,
+    displayBackEffect: coin.displayBackEffect
+      ? { ...coin.displayBackEffect }
+      : undefined
   }
 }
 
@@ -74,6 +81,9 @@ function cloneState(state) {
       currentIntent: state.enemy.currentIntent
         ? {
             ...state.enemy.currentIntent,
+            indicators: (
+              state.enemy.currentIntent.indicators ?? []
+            ).map((indicator) => ({ ...indicator })),
             effects: state.enemy.currentIntent.effects.map((effect) => ({
               ...effect
             }))
@@ -83,7 +93,39 @@ function cloneState(state) {
     coins: state.coins.map(cloneCoin),
     drawnCoins: state.drawnCoins.map(cloneCoin),
     playedCoins: state.playedCoins.map((coin) => ({ ...coin })),
+    extraBetSources: [...state.extraBetSources],
+    selectionRules: {
+      ...state.selectionRules,
+      extraBetIntervals: state.selectionRules.extraBetIntervals.map(
+        (rule) => ({ ...rule })
+      )
+    },
     lastToss: state.lastToss ? { ...state.lastToss } : null,
+    pendingDecision: state.pendingDecision
+      ? {
+          ...state.pendingDecision,
+          options: state.pendingDecision.options.map((option) => ({
+            ...option
+          })),
+          selectedCoinUids: [
+            ...(state.pendingDecision.selectedCoinUids ?? [])
+          ],
+          provisionalToss: state.pendingDecision.provisionalToss
+            ? {
+                ...state.pendingDecision.provisionalToss,
+                effect: {
+                  ...state.pendingDecision.provisionalToss.effect
+                }
+              }
+            : undefined,
+          probability: state.pendingDecision.probability
+            ? {
+                ...state.pendingDecision.probability,
+                logs: [...state.pendingDecision.probability.logs]
+              }
+            : undefined
+        }
+      : null,
     resolutionEvents: state.resolutionEvents.map(cloneResolutionEvent),
     logs: [...state.logs]
   }
@@ -98,12 +140,25 @@ function receiveDamage(target, rawDamage) {
   return { absorbed, hpDamage }
 }
 
+function requiredHpForCoin(coin) {
+  return Math.max(
+    coin.frontEffect.type === "selfCostDamage"
+      ? coin.frontEffect.cost
+      : 0,
+    coin.backEffect.type === "selfCostDamage"
+      ? coin.backEffect.cost
+      : 0
+  )
+}
+
 export class BattleEngine {
   #state
   #coinSystem
   #intentSystem
   #relicSystem
   #setupLogs
+  #random
+  #forcedToss = null
 
   constructor({
     playerConfig,
@@ -112,9 +167,11 @@ export class BattleEngine {
     relicDefinitions = {},
     drawCount,
     maxCoinsPerTurn = 1,
+    selectionRules = {},
     random = Math.random
   }) {
     this.#validateConfig(playerConfig, enemyConfig)
+    this.#random = random
     const relicIds = [...(playerConfig.relicIds ?? [])]
     const bannedRelicIds = [...(playerConfig.bannedRelicIds ?? [])]
     this.#relicSystem = new RelicSystem({
@@ -152,6 +209,7 @@ export class BattleEngine {
         counterDamage: 0,
         shieldReflectionActive: false,
         shieldConsumedThisEnemyAction: 0,
+        chips: Math.max(0, Math.floor(playerConfig.chips ?? 0)),
         relicIds,
         bannedRelicIds
       }),
@@ -163,8 +221,18 @@ export class BattleEngine {
       coins: this.#coinSystem.getCoins(),
       drawnCoins: [],
       playedCoins: [],
+      baseMaxCoinsPerTurn: maxCoinsPerTurn,
       maxCoinsPerTurn,
+      selectionCount: 0,
+      extraBetSources: [],
+      selectionRules: {
+        isBossBattle: selectionRules.isBossBattle === true,
+        extraBetIntervals: (
+          selectionRules.extraBetIntervals ?? []
+        ).map((rule) => ({ ...rule }))
+      },
       lastToss: null,
+      pendingDecision: null,
       resolutionEvents: [],
       logs: []
     }
@@ -216,20 +284,56 @@ export class BattleEngine {
       return coin
     })
     const requiredHp = selectedCoins.reduce(
-      (total, coin) =>
-        total +
-        Math.max(
-          coin.frontEffect.type === "selfCostDamage"
-            ? coin.frontEffect.cost
-            : 0,
-          coin.backEffect.type === "selfCostDamage"
-            ? coin.backEffect.cost
-            : 0
-        ),
+      (total, coin) => total + requiredHpForCoin(coin),
       0
     )
     if (this.#state.player.hp - requiredHp < 1) {
       throw new Error("当前生命不足以使用所选硬币")
+    }
+
+    if (this.#state.enemy.rerollReviewActive) {
+      const coin = selectedCoins[0]
+      const probability = this.#resolveFinalFrontRate(
+        coin.frontRate,
+        coin
+      )
+      const provisionalToss = this.#coinSystem.toss(
+        coin,
+        probability.rate
+      )
+      this.#state.enemy.rerollReviewActive = false
+      if (provisionalToss.side === "back") {
+        this.#forcedToss = {
+          coinUid: coin.uid,
+          toss: provisionalToss,
+          probability
+        }
+        this.#state.logs.push(
+          `二次复核：${coin.name}投出反面，无需重投`
+        )
+        return this.playCoins(coinUids)
+      }
+      this.#state.status = BattleStatus.PLAYER_DECIDING
+      this.#state.pendingDecision = {
+        type: "REROLL_REVIEW",
+        title: "二次复核",
+        message:
+          `${coin.name}第一次投出正面。根据二次复核条款，` +
+          "必须重新投掷并接受新结果。",
+        selectedCoinUids: [...coinUids],
+        coinUid: coin.uid,
+        coinName: coin.name,
+        provisionalToss,
+        probability,
+        options: [
+          { id: "reroll", label: "按要求重新投掷", enabled: true }
+        ]
+      }
+      this.#state.logs.push(
+        `二次复核：${coin.name}第一次投出` +
+        `${provisionalToss.side === "front" ? "正面" : "反面"}`
+      )
+      return this.getState()
     }
 
     this.#state.status = BattleStatus.RESOLVING
@@ -237,12 +341,20 @@ export class BattleEngine {
     this.#state.resolutionEvents = []
 
     for (const coin of selectedCoins) {
-      const probability = this.#resolveFinalFrontRate(
-        coin.frontRate,
-        coin
-      )
+      const forced =
+        this.#forcedToss?.coinUid === coin.uid
+          ? this.#forcedToss
+          : null
+      const probability =
+        forced?.probability ??
+        this.#resolveFinalFrontRate(coin.frontRate, coin)
       const finalFrontRate = probability.rate
-      const toss = this.#coinSystem.toss(coin, finalFrontRate)
+      const toss =
+        forced?.toss ??
+        this.#coinSystem.toss(coin, finalFrontRate)
+      if (forced) {
+        this.#forcedToss = null
+      }
       this.#state.lastToss = {
         coinUid: coin.uid,
         coinName: coin.name,
@@ -255,6 +367,8 @@ export class BattleEngine {
         side: toss.side,
         rate: toss.rate
       })
+      this.#state.enemy.lastPlayerSide = toss.side
+      this.#updateHouseEdge(toss.side)
       this.#state.logs.push(
         `${this.#state.player.name}使用${coin.name}，` +
         `当前幸运${this.#formatLuck(this.#state.player.luck)}，` +
@@ -315,6 +429,8 @@ export class BattleEngine {
       }
     }
 
+    this.#state.enemy.probabilityConvergenceActive = false
+
     if (this.#state.enemy.hp <= 0) {
       this.#state.status = BattleStatus.VICTORY
       this.#state.drawnCoins = []
@@ -354,7 +470,78 @@ export class BattleEngine {
       return this.getState()
     }
 
-    this.#resolveEnemyAction()
+    const enemyActionCompleted = this.#resolveEnemyAction()
+    if (!enemyActionCompleted) {
+      return this.getState()
+    }
+    return this.#finishEnemyTurn()
+  }
+
+  resolveDecision(choice) {
+    if (
+      this.#state.status !== BattleStatus.PLAYER_DECIDING ||
+      !this.#state.pendingDecision
+    ) {
+      throw new Error("当前没有需要处理的战斗决策")
+    }
+    const decision = this.#state.pendingDecision
+    const option = decision.options.find(({ id }) => id === choice)
+    if (!option?.enabled) {
+      throw new Error("该选项当前不可用")
+    }
+    this.#state.pendingDecision = null
+
+    if (decision.type === "REROLL_REVIEW") {
+      const coin = this.#state.drawnCoins.find(
+        ({ uid }) => uid === decision.coinUid
+      )
+      const toss = this.#coinSystem.toss(
+        coin,
+        decision.probability.rate
+      )
+      this.#forcedToss = {
+        coinUid: decision.coinUid,
+        toss,
+        probability: decision.probability
+      }
+      this.#state.logs.push(
+        `复核重投结果：${toss.side === "front" ? "正面" : "反面"}`
+      )
+      this.#state.status = BattleStatus.PLAYER_SELECTING
+      return this.playCoins(decision.selectedCoinUids)
+    }
+
+    if (decision.type === "LOAN_OFFER") {
+      if (choice === "accept") {
+        this.#state.player.chips += decision.chips
+        this.#state.enemy.debt += decision.debt
+        this.#state.logs.push(
+          `接受垫款：获得${decision.chips}筹码，债务增加${decision.debt}层`
+        )
+      } else {
+        this.#state.enemy.shield += decision.rejectShield
+        this.#state.logs.push(
+          `拒绝垫款，${this.#state.enemy.name}获得${decision.rejectShield}点护盾`
+        )
+      }
+    } else if (decision.type === "DEBT_COLLECTION") {
+      if (choice === "pay_chips") {
+        this.#state.player.chips -= decision.chipCost
+        this.#state.logs.push(`支付${decision.chipCost}筹码清偿债务`)
+      } else {
+        this.#resolveDirectHpLoss(decision.hpCost, "债务催收")
+      }
+      this.#state.enemy.debt = 0
+    } else {
+      throw new Error(`不支持的战斗决策：${decision.type}`)
+    }
+
+    this.#state.status = BattleStatus.RESOLVING
+    this.#completeEnemyAction()
+    return this.#finishEnemyTurn()
+  }
+
+  #finishEnemyTurn() {
     if (this.#state.player.hp <= 0) {
       this.#state.status = BattleStatus.DEFEAT
       this.#state.drawnCoins = []
@@ -393,26 +580,50 @@ export class BattleEngine {
     const continuesResolution =
       this.#state.status === BattleStatus.RESOLVING
     this.#state.turn += 1
+    this.#state.selectionCount += 1
+    this.#state.maxCoinsPerTurn =
+      this.#state.baseMaxCoinsPerTurn
+    this.#state.extraBetSources = []
+    for (const rule of this.#state.selectionRules.extraBetIntervals) {
+      if (
+        this.#state.selectionCount % rule.interval === 0 &&
+        (!rule.bossOnly || this.#state.selectionRules.isBossBattle)
+      ) {
+        this.#state.maxCoinsPerTurn += 1
+        this.#state.extraBetSources.push(rule.source)
+        this.#state.logs.push(`${rule.source}：本次选择可以追加下注`)
+      }
+    }
+    const selectionRelics = this.#relicSystem.trigger(
+      RelicTrigger.PLAYER_SELECTION_START,
+      {
+        selectionCount: this.#state.selectionCount,
+        maxCoinsPerTurn: this.#state.maxCoinsPerTurn,
+        extraBetSources: [...this.#state.extraBetSources]
+      }
+    )
+    this.#state.maxCoinsPerTurn = selectionRelics.maxCoinsPerTurn
+    this.#state.extraBetSources = selectionRelics.extraBetSources
+    this.#state.logs.push(...selectionRelics.logs)
     this.#state.player.shield = 0
-    this.#state.drawnCoins = this.#coinSystem
-      .drawCandidates()
+    const isEligible = (coin) =>
+      this.#state.player.hp - requiredHpForCoin(coin) >= 1
+    const initialDraw = this.#coinSystem.drawCandidates()
+    const fallbackDraw = initialDraw.some(isEligible)
+      ? []
+      : this.#coinSystem.drawCandidates({ isEligible })
+    this.#state.drawnCoins = (
+      fallbackDraw.length > 0 ? fallbackDraw : initialDraw
+    )
       .map((coin) => ({
         ...coin,
+        displayFrontEffect: this.#previewCoinEffect(coin, "front"),
+        displayBackEffect: this.#previewCoinEffect(coin, "back"),
         finalFrontRate: this.#resolveFinalFrontRate(
           coin.frontRate,
           coin
         ).rate,
-        isUsable:
-          this.#state.player.hp -
-            Math.max(
-              coin.frontEffect.type === "selfCostDamage"
-                ? coin.frontEffect.cost
-                : 0,
-              coin.backEffect.type === "selfCostDamage"
-                ? coin.backEffect.cost
-                : 0
-            ) >=
-          1
+        isUsable: isEligible(coin)
       }))
     this.#state.status = BattleStatus.PLAYER_SELECTING
     this.#state.logs.push(
@@ -572,7 +783,7 @@ export class BattleEngine {
     }
     if (effect.type === "counter") {
       this.#state.player.shield += effect.shield
-      this.#state.player.counterCharges += 1
+      this.#state.player.counterCharges = 1
       this.#state.player.counterDamage = effect.damage
       this.#state.logs.push(
         `${this.#state.player.name}获得${effect.shield}点护盾和1次反击`
@@ -595,12 +806,21 @@ export class BattleEngine {
     })
 
     for (const effect of intent.effects) {
-      this.#resolveEnemyEffect(effect)
+      const paused = this.#resolveEnemyEffect(effect)
+      if (paused) {
+        return false
+      }
       if (this.#state.enemy.hp <= 0) {
         break
       }
     }
 
+    this.#completeEnemyAction()
+    return true
+  }
+
+  #completeEnemyAction() {
+    const intent = this.#state.enemy.currentIntent
     if (
       this.#state.player.shieldReflectionActive &&
       this.#state.player.shieldConsumedThisEnemyAction > 0 &&
@@ -621,6 +841,8 @@ export class BattleEngine {
     }
     this.#state.player.shieldReflectionActive = false
     this.#state.player.shieldConsumedThisEnemyAction = 0
+    this.#state.player.counterCharges = 0
+    this.#state.player.counterDamage = 0
 
     this.#intentSystem.completeIntent(
       this.#state.enemy,
@@ -755,7 +977,261 @@ export class BattleEngine {
       })
       return
     }
+    if (effect.type === "setEnemyState") {
+      this.#state.enemy[effect.field] = effect.value
+      const message =
+        effect.message ??
+        `${this.#state.enemy.name}调整了战斗状态`
+      this.#state.logs.push(message)
+      this.#recordResolutionEvent("ENEMY_EFFECT", {
+        effect,
+        message
+      })
+      return
+    }
+    if (effect.type === "stealPlayerLuck") {
+      const before = this.#state.player.luck
+      this.#state.player.luck = clampLuck(before - effect.value)
+      const stolen = before - this.#state.player.luck
+      this.#state.enemy[effect.stateField] =
+        (this.#state.enemy[effect.stateField] ?? 0) + stolen
+      const message =
+        `${this.#state.enemy.name}暂存${stolen}点幸运，` +
+        `玩家当前幸运${this.#formatLuck(this.#state.player.luck)}`
+      this.#state.logs.push(message)
+      this.#recordResolutionEvent("ENEMY_EFFECT", {
+        effect: { ...effect, value: stolen },
+        message
+      })
+      return
+    }
+    if (effect.type === "spendStolenLuckAttack") {
+      this.#resolveEnemyEffect({
+        type: "damagePlayer",
+        value: effect.value
+      })
+      const stored = this.#state.enemy[effect.stateField] ?? 0
+      this.#state.enemy[effect.stateField] = Math.max(
+        0,
+        stored - effect.consume
+      )
+      return
+    }
+    if (effect.type === "returnStolenLuck") {
+      const stored = this.#state.enemy[effect.stateField] ?? 0
+      const before = this.#state.player.luck
+      this.#state.player.luck = clampLuck(before + stored)
+      const returned = this.#state.player.luck - before
+      this.#state.enemy[effect.stateField] = 0
+      const message =
+        `${this.#state.enemy.name}返还${returned}点幸运，` +
+        `玩家当前幸运${this.#formatLuck(this.#state.player.luck)}`
+      this.#state.logs.push(message)
+      this.#recordResolutionEvent("ENEMY_EFFECT", {
+        effect: { ...effect, value: returned },
+        message
+      })
+      return
+    }
+    if (effect.type === "enemyCoinToss") {
+      const succeeded = this.#random() < effect.frontRate
+      if (succeeded) {
+        this.#state.enemy[effect.outcomeField] = "win"
+        this.#state.enemy[effect.streakField] =
+          (this.#state.enemy[effect.streakField] ?? 0) + 1
+        this.#state.logs.push(
+          `${this.#state.enemy.name}投掷成功，连胜继续`
+        )
+        this.#resolveEnemyEffect({
+          type: "damagePlayer",
+          value: effect.successDamage
+        })
+      } else {
+        this.#state.enemy[effect.outcomeField] = "loss"
+        this.#state.enemy[effect.streakField] = 0
+        const result = receiveDamage(
+          this.#state.enemy,
+          effect.failureSelfDamage
+        )
+        const message =
+          `${this.#state.enemy.name}投掷失败，` +
+          `自身受到${result.hpDamage}点伤害`
+        this.#state.logs.push(message)
+        this.#recordResolutionEvent("ENEMY_EFFECT", {
+          effect: {
+            ...effect,
+            result: "back",
+            value: result.hpDamage
+          },
+          hpDamage: result.hpDamage,
+          message
+        })
+      }
+      return
+    }
+    if (effect.type === "activateProbabilityConvergence") {
+      this.#state.enemy.probabilityConvergenceActive = true
+      this.#state.enemy.probabilityConvergenceFactor = effect.factor
+      const message =
+        `下一回合所有硬币概率向50%收拢` +
+        `（保留${Math.round(effect.factor * 100)}%偏差）`
+      this.#state.logs.push(message)
+      this.#recordResolutionEvent("ENEMY_EFFECT", { effect, message })
+      return
+    }
+    if (effect.type === "enableRerollReview") {
+      this.#state.enemy.rerollReviewActive = true
+      const message = "下一回合第一次投掷可在揭晓后选择重投"
+      this.#state.logs.push(message)
+      this.#recordResolutionEvent("ENEMY_EFFECT", { effect, message })
+      return
+    }
+    if (effect.type === "resultTax") {
+      if (this.#state.enemy.lastPlayerSide === "front") {
+        this.#resolveEnemyEffect({
+          type: "shieldSelf",
+          value: effect.frontShield
+        })
+      } else {
+        this.#resolveEnemyEffect({
+          type: "damagePlayer",
+          value: effect.backDamage
+        })
+      }
+      return
+    }
+    if (effect.type === "toggleHouseSide") {
+      const previous = this.#state.enemy.houseSide
+      this.#state.enemy.houseSide =
+        previous === "front" ? "back" : "front"
+      this.#state.enemy.houseMechanicActive = true
+      const sideName =
+        this.#state.enemy.houseSide === "front" ? "正面" : "反面"
+      const message = `庄家宣布：本轮庄家面为${sideName}`
+      this.#state.logs.push(message)
+      this.#recordResolutionEvent("ENEMY_EFFECT", { effect, message })
+      return
+    }
+    if (effect.type === "settleHouseEdge") {
+      const edge = Math.min(
+        this.#state.enemy.houseEdge ?? 0,
+        effect.maxEdge
+      )
+      const damage = effect.baseDamage + edge * effect.damagePerEdge
+      this.#resolveEnemyEffect({
+        type: "damagePlayer",
+        value: damage
+      })
+      this.#state.enemy.houseEdge = 0
+      const message = `庄家优势结算完毕，优势归零`
+      this.#state.logs.push(message)
+      this.#recordResolutionEvent("ENEMY_EFFECT", { effect, message })
+      return
+    }
+    if (effect.type === "offerLoan") {
+      this.#state.pendingDecision = {
+        type: "LOAN_OFFER",
+        title: "高息垫款",
+        message:
+          `接受可立即获得${effect.chips}筹码，但增加` +
+          `${effect.debt}层债务；拒绝则债主获得护盾。`,
+        chips: effect.chips,
+        debt: effect.debt,
+        rejectShield: effect.rejectShield,
+        options: [
+          { id: "accept", label: "接受垫款", enabled: true },
+          { id: "reject", label: "拒绝垫款", enabled: true }
+        ]
+      }
+      this.#state.status = BattleStatus.PLAYER_DECIDING
+      return true
+    }
+    if (effect.type === "increaseDebt") {
+      this.#state.enemy.debt += effect.value
+      const message = `债务增加${effect.value}层，当前${this.#state.enemy.debt}层`
+      this.#state.logs.push(message)
+      this.#recordResolutionEvent("ENEMY_EFFECT", { effect, message })
+      return
+    }
+    if (effect.type === "collectDebt") {
+      const debt = this.#state.enemy.debt ?? 0
+      if (debt <= 0) {
+        this.#state.logs.push("当前没有债务，催收作废")
+        return
+      }
+      const chipCost = debt * effect.chipPerDebt
+      const hpCost = debt * effect.hpPerDebt
+      this.#state.pendingDecision = {
+        type: "DEBT_COLLECTION",
+        title: "到期催收",
+        message:
+          `清偿${debt}层债务：支付${chipCost}筹码，` +
+          `或失去${hpCost}点生命。`,
+        debt,
+        chipCost,
+        hpCost,
+        options: [
+          {
+            id: "pay_chips",
+            label: `支付${chipCost}筹码`,
+            enabled: this.#state.player.chips >= chipCost
+          },
+          {
+            id: "pay_hp",
+            label: `失去${hpCost}生命`,
+            enabled: true
+          }
+        ]
+      }
+      this.#state.status = BattleStatus.PLAYER_DECIDING
+      return true
+    }
     throw new Error(`不支持的敌人意图效果：${effect.type}`)
+  }
+
+  #resolveDirectHpLoss(value, source) {
+    const hpDamage = Math.min(this.#state.player.hp, Math.max(0, value))
+    this.#state.player.hp -= hpDamage
+    const message = `${source}使玩家失去${hpDamage}点生命`
+    this.#state.logs.push(message)
+    this.#recordResolutionEvent("ENEMY_EFFECT", {
+      effect: { type: "directHpLoss", value: hpDamage },
+      hpDamage,
+      message
+    })
+    if (this.#state.player.hp <= 0) {
+      const death = this.#relicSystem.trigger(
+        RelicTrigger.BEFORE_DEATH,
+        { player: this.#state.player }
+      )
+      this.#state.logs.push(...death.logs)
+      this.#state.player.relicIds = this.#relicSystem.getRelicIds()
+      this.#state.player.bannedRelicIds =
+        this.#relicSystem.getBannedRelicIds()
+    }
+  }
+
+  #updateHouseEdge(side) {
+    if (!this.#state.enemy.houseMechanicActive) {
+      return
+    }
+    const before = this.#state.enemy.houseEdge ?? 0
+    const max = this.#state.enemy.maxHouseEdge ?? 4
+    const matched = side === this.#state.enemy.houseSide
+    this.#state.enemy.houseEdge = matched
+      ? Math.min(max, before + 1)
+      : Math.max(0, before - 1)
+    const sideName = side === "front" ? "正面" : "反面"
+    const message = matched
+      ? `${sideName}符合庄家面，庄家优势增加至${this.#state.enemy.houseEdge}`
+      : `${sideName}偏离庄家面，庄家优势降低至${this.#state.enemy.houseEdge}`
+    this.#state.logs.push(message)
+    this.#recordResolutionEvent("ENEMY_REACTION", {
+      side,
+      matched,
+      houseEdge: this.#state.enemy.houseEdge,
+      message
+    })
   }
 
   #validateConfig(playerConfig, enemyConfig) {
@@ -809,13 +1285,42 @@ export class BattleEngine {
       baseRate,
       this.#state.player.luck
     )
-    return this.#relicSystem.trigger(
+    const modified = this.#relicSystem.trigger(
       RelicTrigger.PROBABILITY_MODIFY,
       {
         rate: base,
         luck: this.#state.player.luck
       }
     )
+    if (
+      this.#state.enemy.probabilityConvergenceActive &&
+      Math.abs(this.#state.player.luck) < 10
+    ) {
+      const factor =
+        this.#state.enemy.probabilityConvergenceFactor ?? 0.5
+      return {
+        ...modified,
+        rate: clamp(0.5 + (modified.rate - 0.5) * factor, 0, 1),
+        logs: [
+          ...modified.logs,
+          "规则篡改：最终概率向50%收拢"
+        ]
+      }
+    }
+    return modified
+  }
+
+  #previewCoinEffect(coin, side) {
+    return this.#relicSystem.trigger(
+      RelicTrigger.COIN_EFFECT_MODIFY,
+      {
+        player: this.#state.player,
+        coin,
+        side,
+        effect:
+          side === "front" ? coin.frontEffect : coin.backEffect
+      }
+    ).effect
   }
 
   #recordResolutionEvent(type, detail = {}) {

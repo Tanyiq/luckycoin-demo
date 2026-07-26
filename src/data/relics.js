@@ -16,10 +16,27 @@ export const RelicTrigger = Object.freeze({
   COIN_REMOVED: "COIN_REMOVED",
   RELIC_ACQUIRED: "RELIC_ACQUIRED",
   BEFORE_ENEMY_ACTION: "BEFORE_ENEMY_ACTION",
-  PLAYER_DAMAGE_MODIFY: "PLAYER_DAMAGE_MODIFY"
+  PLAYER_DAMAGE_MODIFY: "PLAYER_DAMAGE_MODIFY",
+  PLAYER_SELECTION_START: "PLAYER_SELECTION_START"
 })
 
 export const relics = Object.freeze({
+  gambler_cuff: Object.freeze({
+    id: "gambler_cuff",
+    name: "赌徒袖口",
+    description:
+      "每场战斗第4、8、12、16……次硬币选择阶段，可以追加下注并额外使用一枚硬币。",
+    rarity: RelicRarity.RARE,
+    metaLocked: true,
+    effects: Object.freeze([
+      Object.freeze({
+        trigger: RelicTrigger.PLAYER_SELECTION_START,
+        operation: "ADD_MAX_COINS_ON_INTERVAL",
+        interval: 4,
+        value: 1
+      })
+    ])
+  }),
   fate_balance: Object.freeze({
     id: "fate_balance",
     name: "命运天平",
