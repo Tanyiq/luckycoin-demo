@@ -446,6 +446,19 @@ function battleScreen(snapshot) {
             </div>
             ${intentCard(battle.enemy.intent)}
           </article>
+
+          <div class="mobile-battle-arena" aria-label="战斗舞台">
+            <div class="arena-mark" aria-hidden="true">
+              <span></span>
+              <small>命运结算区</small>
+              <span></span>
+            </div>
+            ${
+              snapshot.animation
+                ? actionTrack(snapshot.animation)
+                : `<p class="arena-idle">观察意图，然后决定把命运投向哪一面。</p>`
+            }
+          </div>
           ${battleEffectAnimation(activeStep)}
         </div>
 
