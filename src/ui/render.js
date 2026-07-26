@@ -127,7 +127,7 @@ function pageShell(snapshot, content, options = {}) {
         }
       : snapshot.player
   return `
-    <div class="app-shell">
+    <div class="app-shell ${options.shellClass ?? ""}">
       ${playerHeader(headerPlayer, snapshot.configs.relics, {
         disabled: snapshot.busy
       })}
@@ -497,7 +497,10 @@ function battleScreen(snapshot) {
           : ""
       }
     `,
-    { stageClass: "battle-stage" }
+    {
+      stageClass: "battle-stage",
+      shellClass: "battle-shell"
+    }
   )
 }
 

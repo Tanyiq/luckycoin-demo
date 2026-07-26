@@ -2448,6 +2448,342 @@ h2 {
   }
 }
 
+@media (max-width: 560px) {
+  .battle-shell {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .battle-shell .topbar {
+    position: relative;
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    padding: 6px 10px;
+  }
+
+  .battle-shell .brand {
+    gap: 0;
+  }
+
+  .battle-shell .brand-mark,
+  .battle-shell .brand .eyebrow,
+  .battle-shell .run-stats > span,
+  .battle-shell .resource-button {
+    display: none;
+  }
+
+  .battle-shell .brand strong {
+    font-size: 15px;
+  }
+
+  .battle-shell .run-stats {
+    margin: 0;
+  }
+
+  .battle-shell .build-button {
+    min-height: 28px;
+    padding: 0 10px;
+    font-size: 10px;
+  }
+
+  .battle-stage {
+    width: calc(100% - 12px);
+    height: calc(100dvh - 44px);
+    padding: 5px 0 7px;
+    overflow: hidden;
+  }
+
+  .battle-layout {
+    display: grid;
+    height: 100%;
+    min-height: 0;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  .battle-heading {
+    display: flex;
+    min-height: 24px;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .battle-heading > div {
+    display: none;
+  }
+
+  .battle-heading .turn-pill {
+    margin: 0;
+    padding: 3px 9px;
+    font-size: 10px;
+  }
+
+  .combatants {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+    margin-top: 0;
+  }
+
+  .combatant {
+    min-width: 0;
+    min-height: 148px;
+    padding: 9px;
+    box-shadow: none;
+  }
+
+  .combatant-heading {
+    gap: 5px;
+    align-items: center;
+  }
+
+  .combatant-heading span,
+  .enemy-seal,
+  .relic-row {
+    display: none;
+  }
+
+  .combatant-heading h2 {
+    margin: 0;
+    overflow: hidden;
+    font-size: clamp(14px, 4.2vw, 18px);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .luck-orb {
+    width: 48px;
+    height: 34px;
+    flex: 0 0 auto;
+    grid-template-columns: 1fr;
+    border-radius: 999px;
+  }
+
+  .luck-orb small {
+    display: block;
+    margin-top: 3px;
+    font-size: 8px;
+    line-height: 1;
+  }
+
+  .luck-orb strong {
+    margin-top: -7px;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .health-track {
+    height: 19px;
+    margin: 7px 0 6px;
+  }
+
+  .health-track span {
+    font-size: 9px;
+  }
+
+  .resource-row {
+    gap: 4px;
+    flex-wrap: nowrap;
+    font-size: 9px;
+  }
+
+  .resource-row span {
+    min-width: 0;
+    padding: 3px 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .intent-card {
+    margin-top: 7px;
+    padding: 6px 7px;
+    border-left-width: 2px;
+  }
+
+  .intent-card span {
+    font-size: 8px;
+  }
+
+  .intent-card strong {
+    margin: 1px 0 2px;
+    font-size: 11px;
+  }
+
+  .intent-card p {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 9px;
+    line-height: 1.3;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .coin-tray {
+    min-height: 0;
+    margin-top: 0;
+    padding: 8px;
+    overflow: hidden;
+    box-shadow: none;
+  }
+
+  .coin-tray .section-heading {
+    display: flex;
+    min-height: 28px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .coin-tray .section-heading .eyebrow,
+  .coin-tray .section-heading > p {
+    display: none;
+  }
+
+  .coin-tray .section-heading h2 {
+    margin: 0;
+    font-size: 14px;
+  }
+
+  .coin-grid {
+    grid-template-columns: repeat(auto-fit, minmax(102px, 1fr));
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .coin-card {
+    min-width: 0;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 5px;
+    padding: 7px 6px 7px 8px;
+  }
+
+  .coin-card:hover:not(:disabled) {
+    transform: none;
+  }
+
+  .coin-orbit {
+    grid-row: auto;
+  }
+
+  .coin-disc {
+    width: 32px;
+    height: 32px;
+    font-size: 10px;
+  }
+
+  .coin-title span,
+  .coin-title small {
+    font-size: 7px;
+  }
+
+  .coin-title strong {
+    display: block;
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .coin-rate {
+    grid-column: span 2;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    text-align: left;
+  }
+
+  .coin-rate span {
+    font-size: 7px;
+  }
+
+  .coin-rate strong {
+    font-size: 13px;
+  }
+
+  .face-effect {
+    grid-column: span 2;
+    gap: 3px;
+    padding-top: 3px;
+    font-size: 8px;
+    line-height: 1.25;
+  }
+
+  .face-effect b {
+    font-size: 8px;
+  }
+
+  .flavor {
+    display: none;
+  }
+
+  .inline-result {
+    grid-column: span 2;
+    gap: 4px;
+    margin: 1px -2px -2px;
+    padding: 5px;
+  }
+
+  .inline-result strong,
+  .inline-result span {
+    font-size: 8px;
+  }
+
+  .action-track {
+    margin-top: 6px;
+  }
+
+  .action-current {
+    min-height: 42px;
+    grid-template-columns: auto 1fr;
+    gap: 6px;
+    padding: 5px 7px;
+  }
+
+  .action-current > div:first-child small {
+    font-size: 7px;
+  }
+
+  .action-current > div:first-child strong {
+    margin-top: 1px;
+    font-size: 9px;
+  }
+
+  .action-deltas {
+    justify-content: flex-end;
+  }
+
+  .action-deltas span {
+    padding: 2px 4px;
+    font-size: 8px;
+  }
+
+  .action-messages {
+    display: none;
+  }
+
+  .battle-log {
+    display: none;
+  }
+
+  .battle-shell .toast {
+    right: 8px;
+    bottom: 8px;
+    max-width: calc(100vw - 16px);
+    padding: 7px 10px;
+    font-size: 9px;
+  }
+
+  .battle-shell .tutorial-hint,
+  .battle-shell .tutorial-hint.anchor-coin,
+  .battle-shell .tutorial-hint.anchor-shield,
+  .battle-shell .tutorial-hint.anchor-luck {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+  }
+}
+
 .entry-overlay {
   position: fixed;
   z-index: 120;
