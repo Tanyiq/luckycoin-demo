@@ -3196,7 +3196,7 @@ h2 {
     grid-template-rows:
       24px
       minmax(0, 1fr)
-      clamp(260px, 38dvh, 292px);
+      clamp(234px, 34dvh, 263px);
     gap: 3px;
   }
 
@@ -3373,14 +3373,14 @@ h2 {
     grid-template-rows:
       24px
       minmax(0, 1fr)
-      clamp(260px, 38dvh, 292px);
+      clamp(234px, 34dvh, 263px);
   }
 
   .tutorial-hint,
   .tutorial-hint.anchor-coin,
   .tutorial-hint.anchor-shield,
   .tutorial-hint.anchor-luck {
-    bottom: calc(clamp(260px, 38dvh, 292px) + 135px);
+    bottom: calc(clamp(234px, 34dvh, 263px) + 135px);
   }
 }
 
