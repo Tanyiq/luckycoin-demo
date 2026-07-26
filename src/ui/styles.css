@@ -3186,12 +3186,17 @@ h2 {
 }
 
 @media (max-width: 560px) {
+  .battle-shell,
+  .battle-stage {
+    overflow: visible;
+  }
+
   .battle-layout {
+    position: relative;
     grid-template-rows:
       24px
       minmax(0, 1fr)
-      clamp(260px, 38dvh, 292px)
-      28px;
+      clamp(260px, 38dvh, 292px);
     gap: 3px;
   }
 
@@ -3319,6 +3324,11 @@ h2 {
   }
 
   .battle-log {
+    position: absolute;
+    z-index: 12;
+    top: calc(100% + 10px);
+    right: 0;
+    left: 0;
     display: block;
     min-height: 28px;
     margin: 0;
@@ -3345,24 +3355,24 @@ h2 {
   }
 
   .battle-shell:has(.battle-log[open]) {
-    height: auto;
+    height: 100dvh;
     min-height: 100dvh;
     overflow: visible;
   }
 
   .battle-shell:has(.battle-log[open]) .battle-stage {
-    height: auto;
-    min-height: calc(100dvh - 40px);
+    height: calc(100dvh - 40px);
+    min-height: 0;
     overflow: visible;
   }
 
   .battle-shell:has(.battle-log[open]) .battle-layout {
-    min-height: calc(100dvh - 46px);
+    height: 100%;
+    min-height: 0;
     grid-template-rows:
       24px
-      minmax(320px, 1fr)
-      clamp(260px, 38dvh, 292px)
-      auto;
+      minmax(0, 1fr)
+      clamp(260px, 38dvh, 292px);
   }
 
   .tutorial-hint,

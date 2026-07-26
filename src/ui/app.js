@@ -23,6 +23,8 @@ let renderedTutorialId = null
 let previousSnapshot = null
 
 session.subscribe((snapshot) => {
+  const screenChanged =
+    previousSnapshot?.screen !== snapshot.screen
   if (isRunRestart(previousSnapshot, snapshot)) {
     audioFeedback.clear()
   }
@@ -30,6 +32,9 @@ session.subscribe((snapshot) => {
   musicController.sync(snapshot)
   previousSnapshot = snapshot
   root.innerHTML = render(snapshot)
+  if (screenChanged) {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" })
+  }
   const nextTutorialId = snapshot.tutorial.activeHint?.id ?? null
   if (nextTutorialId !== renderedTutorialId) {
     tutorialRoot.innerHTML = renderTutorial(snapshot.tutorial)
